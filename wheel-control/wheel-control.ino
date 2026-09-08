@@ -1,12 +1,12 @@
-const int TRIG_PIN = A0;
-const int ECHO_PIN = A1;
+const int TRIG_PIN = A1;
+const int ECHO_PIN = A0;
 
 const int ENA = 9;
 const int IN1 = 8;
 const int IN2 = 7;
-const int IN3 = 4;
-const int IN4 = 3;
-const int ENB = 2;
+const int IN3 = 5;
+const int IN4 = 4;
+const int ENB = 3;
 
 const int TRIGGER_DISTANCE_CM = 20;
 const int MOTOR_SPEED = 200;
@@ -44,6 +44,7 @@ long readDistanceCm() {
 }
 
 void setup() {
+  Serial.begin(9600);
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
 
@@ -60,10 +61,14 @@ void setup() {
 void loop() {
   long distance = readDistanceCm();
 
+  Serial.print("Distance: ");
+  Serial.print(distance);
+  Serial.println(" cm");
+  
   if (distance > 0 && distance < TRIGGER_DISTANCE_CM) {
-    driveForward();
-  } else {
     stopMotors();
+  } else {
+    driveForward();
   }
 
   delay(60);
