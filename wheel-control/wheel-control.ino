@@ -1,7 +1,7 @@
 // Mascot robot - two IBT-2 (BTS7960) drivers steered by an HW-504 joystick.
 //
 // !! REWIRE BEFORE UPLOADING !!  The old sketch put the four PWM wires on
-// A0/A1/A3/A4.  The ATmega328P has no PWM hardware on the analog pins, so
+// A0/0/A3/A4.  The ATmega328P has no PWM hardware on the analog pins, so
 // analogWrite() there was really just digitalWrite() - the wheels were full
 // speed above 128 and off below it.  The PWM wires have to move to real
 // PWM pins (5, 6, 3, 11) for the joystick to control speed at all.
@@ -21,7 +21,7 @@
 //   RIGHT L_IS      D8        A1      <- moved
 //   joystick VRX    -         A2
 //   joystick VRY    -         A5
-//   joystick SW     -         D10
+//   joystick SW     -         D13
 //   joystick +5V    -         5V
 //   joystick GND    -         GND
 //
@@ -50,9 +50,9 @@ int LEFT_R_EN = 10;
 int LEFT_L_EN = 11;
 
 //HW-504 joystick
-int JOY_X = A2;
-int JOY_Y = A5;
-int JOY_SW = 10;
+int JOY_X = A0;
+int JOY_Y = A1;
+int JOY_SW = 13;
 
 // Flip any of these to -1 if something drives the wrong way.  RIGHT_INVERT
 // starts at -1 because the two motors face opposite ways on the chassis, so
