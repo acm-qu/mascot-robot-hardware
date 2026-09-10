@@ -1,75 +1,77 @@
-const int TRIG_PIN = A1;
-const int ECHO_PIN = A0;
+//Left Wheel BTS7960 motor driver sketch 
+int LEFT_R_IS = 6;
+int LEFT_R_EN = 2;
+int LEFT_R_PWM = A4;
+int LEFT_L_IS = 7;
+int LEFT_L_EN = 4;
+int LEFT_L_PWM = A3;
 
-const int ENA = 9;
-const int IN1 = 8;
-const int IN2 = 7;
-const int IN3 = 5;
-const int IN4 = 4;
-const int ENB = 3;
-
-const int TRIGGER_DISTANCE_CM = 20;
-const int MOTOR_SPEED = 200;
-
-void stopMotors() {
-  analogWrite(ENA, 0);
-  analogWrite(ENB, 0);
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, LOW);
-}
-
-void driveForward() {
-  digitalWrite(IN1, HIGH);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, HIGH);
-  digitalWrite(IN4, LOW);
-  analogWrite(ENA, MOTOR_SPEED);
-  analogWrite(ENB, MOTOR_SPEED);
-}
-
-long readDistanceCm() {
-  digitalWrite(TRIG_PIN, LOW);
-  delayMicroseconds(2);
-  digitalWrite(TRIG_PIN, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
-
-  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
-  if (duration == 0) {
-    return -1;
-  }
-  return duration * 0.034 / 2;
-}
+//Left Wheel BTS7960 motor driver sketch
+int RIGHT_R_IS = 9;
+int RIGHT_R_EN = 3;
+int RIGHT_R_PWM = A1;
+int RIGHT_L_IS = 8;
+int RIGHT_L_EN = 5;
+int RIGHT_L_PWM = A0;
 
 void setup() {
-  Serial.begin(9600);
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
-
-  pinMode(ENA, OUTPUT);
-  pinMode(IN1, OUTPUT);
-  pinMode(IN2, OUTPUT);
-  pinMode(IN3, OUTPUT);
-  pinMode(IN4, OUTPUT);
-  pinMode(ENB, OUTPUT);
-
-  stopMotors();
+  // put your setup code here, to run once:
+  setupRightWheel();
+  setupLeftWheel();
 }
 
 void loop() {
-  long distance = readDistanceCm();
-
-  Serial.print("Distance: ");
-  Serial.print(distance);
-  Serial.println(" cm");
-  
-  if (distance > 0 && distance < TRIGGER_DISTANCE_CM) {
-    stopMotors();
-  } else {
-    driveForward();
+  // put your main code here, to run repeatedly:
+  int i;
+  for(i = 0; i <= 255; i= i+10){ //clockwise rotation
+   rotateWheel('R', 1, i);
+   rotateWheel('L', 1, i);
+   delay(500);
   }
+  delay(500);
+  for(i = 0; i <= 255; i= i+10){ //counter clockwise rotation
+   rotateWheel('R', -1, i);
+   rotateWheel('L', -1, i);
+   delay(500);
+  }
+  delay(500);
+}
 
-  delay(60);
+void setupLeftWheel() {
+  pinMode(LEFT_R_IS, OUTPUT);
+  pinMode(LEFT_R_EN, OUTPUT);
+  pinMode(LEFT_R_PWM, OUTPUT);
+  pinMode(LEFT_L_IS, OUTPUT);
+  pinMode(LEFT_L_EN, OUTPUT);
+  pinMode(LEFT_L_PWM, OUTPUT);
+  digitalWrite(LEFT_R_IS, LOW);
+  digitalWrite(LEFT_L_IS, LOW);
+  digitalWrite(LEFT_R_EN, HIGH);
+  digitalWrite(LEFT_L_EN, HIGH);
+}
+
+void setupRightWheel() {
+  pinMode(RIGHT_R_IS, OUTPUT);
+  pinMode(RIGHT_R_EN, OUTPUT);
+  pinMode(RIGHT_R_PWM, OUTPUT);
+  pinMode(RIGHT_L_IS, OUTPUT);
+  pinMode(RIGHT_L_EN, OUTPUT);
+  pinMode(RIGHT_L_PWM, OUTPUT);
+  digitalWrite(RIGHT_R_IS, LOW);
+  digitalWrite(RIGHT_L_IS, LOW);
+  digitalWrite(RIGHT_R_EN, HIGH);
+  digitalWrite(RIGHT_L_EN, HIGH);
+}
+// wheel='R' / 'L'
+// dir = 1 clockwise / -1 counter-clockwise
+// speed = 0 -> 255
+void rotateWheel(char wheel, int dir, int speed) {
+  if (wheel == 'R') {
+    analogWrite(RIGHT_R_PWM, ((dir == 1) ? speed : 0));
+    analogWrite(RIGHT_L_PWM, ((dir == -1) ? speed : 0));
+  } else if (wheel == 'L') {
+    analogWrite(LEFT_R_PWM, ((dir == 1) ? speed : 0));
+    analogWrite(LEFT_L_PWM, ((dir == -1) ? speed : 0));
+  }
+  delay(500);
 }
