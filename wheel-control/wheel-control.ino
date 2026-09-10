@@ -34,16 +34,16 @@
 // the Y axis, steering on the X axis.
 
 //Right Wheel BTS7960 motor driver
-// int RIGHT_R_IS = A4;
-// int RIGHT_L_IS = A3;
+int RIGHT_R_IS = A5;
+int RIGHT_L_IS = A4;
 int RIGHT_R_PWM = 2;
 int RIGHT_L_PWM = 3;
 int RIGHT_R_EN = 4;
 int RIGHT_L_EN = 5;
 
 //Left Wheel BTS7960 motor driver
-// int LEFT_R_IS = A2;
-// int LEFT_L_IS = A1;
+int LEFT_R_IS = A3;
+int LEFT_L_IS = A2;
 int LEFT_R_PWM = 8;
 int LEFT_L_PWM = 9;
 int LEFT_R_EN = 10;
