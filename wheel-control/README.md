@@ -1,11 +1,19 @@
 # Wheel Control
 
-`wheel-control.ino` drives the mascot robot's two wheels from an **on-screen
-joystick served by the ESP32 itself**. The board brings up its own Wi-Fi access
-point, serves a single page, and that page posts stick positions back to it
-about 20 times a second. Each wheel has its own IBT-2 (BTS7960) H-bridge; the
-sketch mixes the two axes into a left and a right wheel speed and writes those
-speeds out as PWM.
+The `wheel-control` sketch drives the mascot robot's two wheels from an
+**on-screen joystick served by the ESP32 itself**. The board brings up its own
+Wi-Fi access point, serves a single page, and that page posts stick positions
+back to it about 20 times a second. Each wheel has its own IBT-2 (BTS7960)
+H-bridge; the sketch mixes the two axes into a left and a right wheel speed and
+writes those speeds out as PWM.
+
+It also knows a handful of **named moves** — `forward`, `spin_right`,
+`slight_left` and so on — that one `GET /move` request starts and the board
+times by itself, so a tablet app (or a `curl`) can ask for a motion without
+streaming stick positions. See section 4.
+
+The sketch is split across seven files, one per concern; section 5 says what
+lives where.
 
 There is no physical joystick any more. `R_EN` / `L_EN` are back on GPIOs, so
 each wheel's bridge can be gated in hardware from the page — **both wheels come
@@ -14,6 +22,29 @@ wired too, as inputs.
 
 Two things stop the robot: the per-wheel enable, and a **link failsafe** that
 cuts the drive if no command arrives for 500 ms. See section 9.
+
+## Flashing it
+
+**`wheel-control.ino` is the file you open and upload.** An Arduino sketch's
+entry point is the `.ino` named after its folder — there is no `main` or
+`index` — and opening it in the Arduino IDE brings the other six files along
+as tabs. *Upload* compiles all of them together.
+
+1. Install the ESP32 board package once: *Preferences → Additional Boards
+   Manager URLs* → `https://espressif.github.io/arduino-esp32/package_esp32_index.json`,
+   then *Tools → Board → Boards Manager* → **esp32**.
+2. *File → Open* → `wheel-control/wheel-control.ino`.
+3. *Tools → Board* → **DOIT ESP32 DEVKIT V1**; *Tools → Upload Speed* →
+   **115200** (the default 921600 fails on this board's USB bridge — see
+   *Uploading* at the end); *Tools → Port* → the board.
+4. Put the chassis on blocks or leave the motor supply off, then *Upload*.
+
+From a terminal instead, with [`arduino-cli`](https://arduino.github.io/arduino-cli/):
+
+```sh
+arduino-cli compile --fqbn esp32:esp32:esp32doit-devkit-v1 wheel-control
+arduino-cli upload  --fqbn esp32:esp32:esp32doit-devkit-v1 -p /dev/cu.usbserial-XXXX wheel-control
+```
 
 ---
 
@@ -50,6 +81,10 @@ just before the hardware write.
 
 The centring and calibration step the old analog stick needed is gone: the
 browser sends values that are already centred on 0.
+
+A named move (section 4) is nothing more than a stick position the board writes
+for itself and holds for a while, so it enters this same pipeline at the top
+and every step applies to it unchanged.
 
 ---
 
@@ -222,7 +257,7 @@ inputs (ADC1_CH0 and ADC1_CH3) and the only pins on this board not labelled with
 their GPIO number — which is why the `IS` rows below give both. The tables use
 the silkscreen label as the thing you actually land a wire on.
 
-Pin numbers come straight from the constants at the top of the sketch.
+Pin numbers come straight from the constants in `config.h`.
 
 ### Right wheel — IBT-2 / BTS7960
 
@@ -302,9 +337,10 @@ joining yours. Nothing else is needed: no router, no app, no filesystem upload.
 The IP is printed to serial at 115200 baud on boot as well. Your phone has no
 internet while it is on this network, which is why the page loads no fonts,
 frameworks or icons from anywhere — it is one self-contained ~6 KB document
-compiled into the sketch as a `PROGMEM` string and served with `send_P()`.
+compiled into the sketch as a `PROGMEM` string (`page.h`) and served with
+`send_P()`.
 
-**Change the SSID and password** at the top of the sketch:
+**Change the SSID and password** in `config.h`:
 
 ```c
 const char *AP_SSID = "mascot-robot";
@@ -342,12 +378,14 @@ disarm; it zeroes the axes and leaves the enables as you set them.
 | Route | Returns | Purpose |
 |---|---|---|
 | `GET /` | the page, `text/html` | what the browser loads |
-| `GET /drive?x=<-512..512>&y=<-512..512>` | status | one control command, and the heartbeat that keeps the failsafe fed |
+| `GET /drive?x=<-512..512>&y=<-512..512>` | status | one control command, and the heartbeat that keeps the failsafe fed. Anything other than `0,0` also cancels a running move |
 | `GET /enable?l=<0\|1>&r=<0\|1>` | status | arms or disarms either wheel; an omitted argument leaves that wheel alone |
-| `GET /stop` | status | zeroes both axes immediately |
+| `GET /stop` | status | zeroes both axes immediately, and cancels a running move |
+| `GET /move?name=<move>&ms=<hold>&speed=<0..100>` | status, or 400 | starts a named move on the board's own clock — see *Named moves* below |
+| `GET /moves` | the move names, comma-separated | what `/move` accepts, so a client need not hard-code the list |
 | anything else | 404 `not found` | |
 
-Every route answers with the same one-line **status**:
+Every control route answers with the same one-line **status**:
 
 ```
 <leftSpeed>,<rightSpeed>,<leftEnabled>,<rightEnabled>
@@ -368,7 +406,61 @@ curl "http://192.168.4.1/enable?l=0&r=0"    # disarm
 ```
 
 Remember the failsafe: a single `curl` drives for 500 ms and then cuts out. To
-keep moving you have to keep sending.
+keep moving you have to keep sending — or ask for a named move.
+
+### Named moves
+
+`GET /move?name=<move>` asks the board to hold a stick position on its own
+clock, so a client can say *spin right for a second* in one request instead of
+streaming `/drive` commands. The names come from the `MOVES[]` table in
+`moves.ino`, and `GET /moves` returns them:
+
+| move | x | y | what the robot does |
+|---|---|---|---|
+| `forward` | 0 | +512 | both wheels forward |
+| `backward` | 0 | -512 | both wheels back |
+| `spin_left` | -512 | 0 | wheels opposed: turns on the spot |
+| `spin_right` | +512 | 0 | turns on the spot the other way |
+| `turn_left` | -360 | +512 | tight turn: the inside wheel nearly stops |
+| `turn_right` | +360 | +512 | |
+| `slight_left` | -150 | +512 | gentle arc: both wheels still driving |
+| `slight_right` | +150 | +512 | |
+| `stop` | 0 | 0 | centres the stick and holds it there |
+
+`x` and `y` are stick positions in the same frame the page sends, so a move
+goes through the whole of section 2 exactly as a knob would — inversion,
+deadzone, mix, normalise, PWM, slew — and the per-wheel enables still gate it:
+**a disarmed wheel does not move for a move either.**
+
+Two optional arguments:
+
+| argument | default | meaning |
+|---|---|---|
+| `ms` | `MOVE_DEFAULT_MS` = 500 | how long to hold the stick, in ms. **Capped at `MOVE_MAX_MS` = 3000** whatever you ask for — section 9 says why |
+| `speed` | 100 | percent of full deflection. It scales the stick, not the PWM, so anything below about 12 % lands inside the deadzone (section 2.2) and does nothing |
+
+```sh
+curl "http://192.168.4.1/enable?l=1&r=1"                # arm both wheels
+curl "http://192.168.4.1/move?name=spin_right&ms=1000"  # one second on the spot
+curl "http://192.168.4.1/move?name=forward&speed=50"    # 500 ms at half deflection
+curl "http://192.168.4.1/moves"                         # forward,backward,spin_left,...
+curl "http://192.168.4.1/move?name=sideways"            # 400: unknown move "sideways", try one of: ...
+```
+
+When the hold ends the stick is centred and the wheels ramp down through slew,
+exactly like a released knob. Until then:
+
+- a new `/move` replaces the running one;
+- `/stop` cancels it;
+- a **deflected** knob cancels it — any `/drive` other than `0,0` — because
+  whoever is holding the phone should always win. A `/drive` of `0,0` does
+  *not*: that is the page's idle heartbeat, sent at 5 Hz whenever the page is
+  open, and it would otherwise kill every move within 200 ms of a phone being
+  connected;
+- disarming a wheel stops that wheel, as always.
+
+Add a move by adding a row to `MOVES[]` in `moves.ino`. Nothing else needs to
+change — `/moves` and the 400 message read the table.
 
 ### Timing
 
@@ -421,6 +513,41 @@ polling with one persistent connection.
 
 ## 5. Program structure
 
+### The files
+
+The sketch is one folder, and the Arduino IDE shows each file in it as a tab:
+
+| File | Holds |
+|---|---|
+| `wheel-control.ino` | The globals every tab shares, `setup()`, `loop()`, `failsafe()`, `report()` |
+| `config.h` | Pins, tuning constants, Wi-Fi credentials, safety limits — **the only file you should need to edit** |
+| `mixing.ino` | The math of section 2: `applyDeadzone()`, `arcadeMix()`, `toPwm()`, `slew()`. Pure functions |
+| `moves.ino` | The `MOVES[]` table and the functions that start, time and cancel a move |
+| `web.ino` | `startAccessPoint()`, `startServer()`, every route handler, `statusBody()` |
+| `page.h` | `INDEX_HTML`, the control page. Included only by `web.ino` |
+| `wheels.ino` | Everything that touches a pin: `setup*Wheel()`, `enableWheel()`, `driveWheel()`, `rotateWheel()`, `stopWheels()` |
+
+There is no build system and nothing to configure: every `.ino` in the folder
+is compiled **as one file** — the one named after the folder first, the rest
+in alphabetical order — with a prototype for every function inserted near the
+top of the main file, which is what lets the tabs call each other in any
+order. Two rules follow from that, and both show up as compile errors if
+ignored:
+
+1. **A global that more than one tab uses is defined in `wheel-control.ino`.**
+   A function cannot use a variable defined further down the combined file,
+   and "further down" means a tab that sorts later alphabetically, which has
+   nothing to do with what makes sense. A tab may keep state that only its own
+   functions touch (`moveUntil` in `moves.ino`), because those functions come
+   after it in the same file.
+2. **No struct of our own in a function signature.** The generated prototypes
+   land above every tab, so a `Move` in a parameter list would be named before
+   it is defined. `findMove()` returns an index for that reason.
+
+`.h` files are ordinary C++ headers and follow ordinary rules: `config.h`
+*defines* its variables, so it carries `#pragma once` and is included exactly
+once, from the main file.
+
 ### `setup()`
 
 Runs once, in this order, and the order is deliberate:
@@ -453,15 +580,17 @@ server.handleClient()            every pass, as fast as possible
 if (millis() - lastStep < LOOP_MS) return
 lastStep = millis()
 
+serviceMove()                    a running move stamps lastCommand itself,
+                                 so this comes before the check -- section 9
+
 if (millis() - lastCommand > COMMAND_TIMEOUT_MS) { failsafe(); return }
 
-deadzone   -> x, y
-mix        -> l, r
-normalise  -> |l|, |r| <= 512
-toPwm      -> targetLeft, targetRight   (0 for a disarmed wheel)
-slew       -> leftSpeed, rightSpeed
-driveWheel -> hardware, with LEFT_INVERT / RIGHT_INVERT applied
-report     -> serial, rate-limited
+applyDeadzone -> x, y
+arcadeMix     -> l, r, mixed then normalised so |l|, |r| <= 512
+toPwm         -> targetLeft, targetRight   (0 for a disarmed wheel)
+slew          -> leftSpeed, rightSpeed
+driveWheel    -> hardware, with LEFT_INVERT / RIGHT_INVERT applied
+report        -> serial, rate-limited
 ```
 
 `LOOP_MS` sets the control rate, and `SLEW` is defined per loop, so the two
@@ -469,12 +598,14 @@ constants together determine the acceleration ramp. Changing one changes the
 ramp.
 
 Every route handler runs from inside `handleClient()`, on the same task as
-`loop()` — so `webX`, `webY`, `lastCommand` and the enable flags need no locking
-and no `volatile`.
+`loop()` — so `webX`, `webY`, `lastCommand`, `moveUntil` and the enable flags
+need no locking and no `volatile`.
 
 ---
 
 ## 6. Constants
+
+All in `config.h`.
 
 | Name | Value | Meaning |
 |---|---|---|
@@ -482,6 +613,8 @@ and no `volatile`.
 | `AP_PASS` | `"mascotbot"` | **Change it.** 8 characters minimum or the network comes up open. |
 | `COMMAND_TIMEOUT_MS` | 500 | Silence after which the drive is cut. Section 9. |
 | `START_ENABLED` | `false` | Arm state at boot. `false` means a reset or a fresh upload cannot drive anything until you tap a wheel on. Set `true` for the old always-live behaviour. |
+| `MOVE_DEFAULT_MS` | 500 | How long `/move` holds the stick when the request gives no `ms`. |
+| `MOVE_MAX_MS` | 3000 | The longest any `/move` can hold, whatever it asks for. The link failsafe is suspended for the length of a move, so this is the bound on unattended driving — section 9. |
 | `DEADZONE` | 60 | Counts either side of centre treated as neutral. Safe to lower toward 0 now that the input is digital. |
 | `MIN_PWM` | 40 | Lowest PWM that actually turns a loaded motor. Raise if the robot stalls and buzzes at low throttle; lower if it lurches off the deadzone. |
 | `MAX_PWM` | 255 | Full duty. Lower it to cap top speed. |
@@ -494,41 +627,54 @@ and no `volatile`.
 
 ## 7. Globals
 
+In `wheel-control.ino` unless the row says otherwise.
+
 | Name | Type | Meaning |
 |---|---|---|
 | `server` | `WebServer` | The HTTP server, on port 80. |
-| `INDEX_HTML` | `const char[] PROGMEM` | The whole control page. |
+| `INDEX_HTML` | `const char[] PROGMEM` | The whole control page. In `page.h`. |
 | `webX`, `webY` | `int` | Last commanded axes, -512 → +512. Written by `handleDrive()`. |
-| `lastCommand` | `unsigned long` | `millis()` of the last `/drive` or `/stop`. The failsafe measures against this. |
+| `lastCommand` | `unsigned long` | `millis()` of the last `/drive`, `/stop` or `/move` — or of the last control step while a move runs. The failsafe measures against this. |
 | `lastStep` | `unsigned long` | `millis()` of the last control step, for the `LOOP_MS` gate. |
 | `leftSpeed`, `rightSpeed` | `int` | Signed PWM currently applied, -255 → 255. Persist across loops — slew needs the previous value. |
 | `leftEnabled`, `rightEnabled` | `bool` | Whether each bridge's `EN` pins are HIGH. Written only by `enableWheel()`. |
 | `lastPrint` | `unsigned long` | `millis()` of the last serial report, for rate limiting. |
+| `MOVES`, `MOVE_COUNT` | `const Move[]`, `const int` | The move table — name, x, y — and its length. In `moves.ino`. |
+| `moveUntil` | `unsigned long` | `millis()` at which the running move stops holding the stick; 0 when none is running. In `moves.ino`, touched only by its own functions. |
 
 ## 8. Functions
 
-| Function | Does |
-|---|---|
-| `setup()` | Boot sequence, section 5. |
-| `loop()` | HTTP service plus one gated control step, section 5. |
-| `startAccessPoint()` | `WIFI_AP` mode, `softAP(AP_SSID, AP_PASS)`, prints the IP. Says so on serial and returns if the AP fails to come up, rather than printing `0.0.0.0`. |
-| `startServer()` | Registers `/`, `/drive`, `/enable`, `/stop` and the 404, disables `handleClient()`'s idle delay, starts listening. |
-| `statusBody()` | Builds the `L,R,leftEnabled,rightEnabled` line every route replies with. |
-| `enableWheel(char wheel, bool on)` | The only function that touches `EN`. Zeroes that wheel's PWM and stored speed **first**, then moves both `EN` pins together, so neither edge hands the driver a live duty cycle. |
-| `handleRoot()` | `send_P()` of `INDEX_HTML` straight out of flash. |
-| `handleDrive()` | Clamps `x` and `y` to ±512 into `webX`/`webY`, stamps `lastCommand`, replies `"<L>,<R>"`. A missing argument reads as 0. |
-| `handleEnable()` | Arms/disarms from `l` and `r` arguments. An absent argument leaves that wheel alone, so one button cannot disarm the other by omission. |
-| `handleStop()` | Zeroes both axes and stamps `lastCommand`. Does not change the enables. |
-| `handleNotFound()` | 404. |
-| `failsafe()` | Zeroes the axes **and the applied speeds**, then `stopWheels()` — no slew ramp. Returns early when already stopped, so it neither re-writes the pins nor spams serial. |
-| `applyDeadzone(int v)` | Axis value → 0 inside the deadzone, otherwise rescaled to the full ±512 range. Section 2.2. |
-| `toPwm(long v)` | Mixed value (±512) → signed PWM, 0 or ±40…255. Section 2.5. |
-| `slew(int current, int target)` | Returns `current` moved toward `target` by at most `SLEW`. Section 2.6. |
-| `report(int x, int y)` | Prints `x`, `y`, `L`, `R` to serial at most every 250 ms. Returns immediately otherwise, so it never stalls the loop. |
-| `driveWheel(char wheel, int speed)` | Splits a signed speed into a direction (+1/-1/0) and a magnitude, then calls `rotateWheel()`. |
-| `rotateWheel(char wheel, int dir, int speed)` | The only function that touches the PWM pins. Picks the wheel's pin pair, clamps speed to 0–255, and writes them. |
-| `stopWheels()` | `rotateWheel(..., 0, 0)` on both wheels — all four PWM pins to 0. Does not touch `EN`; that is `enableWheel()`'s job. |
-| `setupLeftWheel()`, `setupRightWheel()` | One driver's pins: PWM and `EN` to `OUTPUT` with `EN` LOW, `IS` to `INPUT`. |
+| Tab | Function | Does |
+|---|---|---|
+| `main` | `setup()` | Boot sequence, section 5. |
+| `main` | `loop()` | HTTP service plus one gated control step, section 5. |
+| `web` | `startAccessPoint()` | `WIFI_AP` mode, `softAP(AP_SSID, AP_PASS)`, prints the IP. Says so on serial and returns if the AP fails to come up, rather than printing `0.0.0.0`. |
+| `web` | `startServer()` | Registers `/`, `/drive`, `/enable`, `/stop`, `/move`, `/moves` and the 404, disables `handleClient()`'s idle delay, starts listening. |
+| `web` | `statusBody()` | Builds the `L,R,leftEnabled,rightEnabled` line every control route replies with. |
+| `wheels` | `enableWheel(char wheel, bool on)` | The only function that touches `EN`. Zeroes that wheel's PWM and stored speed **first**, then moves both `EN` pins together, so neither edge hands the driver a live duty cycle. |
+| `web` | `handleRoot()` | `send_P()` of `INDEX_HTML` straight out of flash. |
+| `web` | `handleDrive()` | Clamps `x` and `y` to ±512 into `webX`/`webY`, stamps `lastCommand`, replies with the status line. A missing argument reads as 0. Anything other than `0,0` cancels a running move; `0,0` — the page's idle heartbeat — leaves it alone and does not touch the stick. |
+| `web` | `handleEnable()` | Arms/disarms from `l` and `r` arguments. An absent argument leaves that wheel alone, so one button cannot disarm the other by omission. |
+| `web` | `handleStop()` | Cancels any move, zeroes both axes and stamps `lastCommand`. Does not change the enables. |
+| `web` | `handleMove()` | Reads `name`, `ms` and `speed`, hands them to `startMove()`, replies with the status line — or 400 and the list of names if the move does not exist. |
+| `web` | `handleMoves()` | Replies with `listMoves()`. |
+| `web` | `handleNotFound()` | 404. |
+| `main` | `failsafe()` | Zeroes the axes **and the applied speeds**, then `stopWheels()` — no slew ramp. Returns early when already stopped, so it neither re-writes the pins nor spams serial. |
+| `mixing` | `applyDeadzone(int v)` | Axis value → 0 inside the deadzone, otherwise rescaled to the full ±512 range. Section 2.2. |
+| `mixing` | `arcadeMix(int x, int y, long &l, long &r)` | `l = y + x`, `r = y - x`, then both scaled down together if either exceeds 512. Sections 2.3 and 2.4. |
+| `mixing` | `toPwm(long v)` | Mixed value (±512) → signed PWM, 0 or ±40…255. Section 2.5. |
+| `mixing` | `slew(int current, int target)` | Returns `current` moved toward `target` by at most `SLEW`. Section 2.6. |
+| `main` | `report(int x, int y)` | Prints `x`, `y`, `L`, `R` to serial at most every 250 ms. Returns immediately otherwise, so it never stalls the loop. |
+| `moves` | `findMove(const String &name)` | Index of a name in `MOVES[]`, or -1. Case-sensitive. |
+| `moves` | `startMove(const String &name, long ms, int speed)` | Writes the move's stick position, scaled by `speed`, into `webX`/`webY`; stamps `lastCommand`; sets `moveUntil`. `ms <= 0` means `MOVE_DEFAULT_MS`, and **the hold is capped at `MOVE_MAX_MS` here**, not in the route, so every caller gets the cap. Returns `false` for an unknown name and then changes nothing. |
+| `moves` | `serviceMove(unsigned long now)` | One call per control step, before the failsafe check. While the hold lasts, stamps `lastCommand`. When it ends, centres the stick and keeps stamping until both wheels are at rest, so the ramp-down is never mistaken for a lost link. Then clears `moveUntil`. |
+| `moves` | `cancelMove()` | Clears `moveUntil`. Does not touch the stick — the caller decides what happens next. |
+| `moves` | `moveRunning()` | Whether `moveUntil` is set. |
+| `moves` | `listMoves()` | The names in `MOVES[]`, comma-separated. |
+| `wheels` | `driveWheel(char wheel, int speed)` | Splits a signed speed into a direction (+1/-1/0) and a magnitude, then calls `rotateWheel()`. |
+| `wheels` | `rotateWheel(char wheel, int dir, int speed)` | The only function that touches the PWM pins. Picks the wheel's pin pair, clamps speed to 0–255, and writes them. |
+| `wheels` | `stopWheels()` | `rotateWheel(..., 0, 0)` on both wheels — all four PWM pins to 0. Does not touch `EN`; that is `enableWheel()`'s job. |
+| `wheels` | `setupLeftWheel()`, `setupRightWheel()` | One driver's pins: PWM and `EN` to `OUTPUT` with `EN` LOW, `IS` to `INPUT`. |
 
 ### On `rotateWheel()`
 
@@ -556,7 +702,7 @@ one window is still outside software's reach.
 
 ### The link failsafe
 
-Every `/drive` and `/stop` stamps `lastCommand`. If a control step finds more
+Every `/drive`, `/stop` and `/move` stamps `lastCommand`. If a control step finds more
 than `COMMAND_TIMEOUT_MS` (500 ms) of silence, `failsafe()` runs: both axes to
 0, both applied speeds to 0, `stopWheels()`, done.
 
@@ -582,6 +728,32 @@ what you want.
 The browser's 5 Hz idle heartbeat is what keeps the failsafe fed while you are
 connected but not driving. That means closing the tab, locking the phone or
 walking out of range all stop the robot within half a second.
+
+### Moves and the failsafe
+
+A named move is the one case where the board drives with nobody sending
+commands. For the length of the hold `serviceMove()` stamps `lastCommand`
+itself, every control step — otherwise the failsafe above would cut every move
+at 500 ms. That suspends the link failsafe on purpose, and three things bound
+what it can do:
+
+- **`MOVE_MAX_MS` caps the hold** at 3 s whatever the request asked for. The
+  cap is applied in `startMove()`, not in the route handler, so any future
+  caller gets it too. A client that dies mid-move has a robot that stops
+  within 3 s plus the slew ramp, and its wheels never re-arm on their own.
+- **The enables still gate it.** A move is a stick position and nothing more;
+  a disarmed wheel is dead in hardware for a move exactly as for the knob.
+- **Whoever is holding the phone wins.** A deflected knob or `/stop` cancels
+  the move at once.
+
+When the hold ends the stick is centred and the wheels ramp down through
+`slew()` — a designed stop, so the stamping continues until both wheels are at
+rest and the failsafe never mistakes the ramp for a lost link, whatever `SLEW`
+is set to. Only then does `lastCommand` go stale, and the failsafe that fires
+500 ms later finds nothing to cut.
+
+Raise `MOVE_MAX_MS` only if you understand that it is the *whole* of the
+protection while a move runs.
 
 ### The per-wheel enable
 
@@ -655,6 +827,10 @@ up with no password and no warning.
 | Too twitchy | Lower `SLEW`. |
 | Too sluggish to respond | Raise `SLEW`. |
 | Too fast overall | Lower `MAX_PWM`. |
+| `/move` answers 400 | The name is not in `MOVES[]`. Names are case-sensitive; `GET /moves` lists them. |
+| A move does nothing | The wheels are disarmed — arm them first, a move respects the enables. Or `speed` is so low the stick lands inside the deadzone. |
+| A move stops early | Someone's knob was deflected, or `/stop` was called — both cancel a move. Or the hold hit `MOVE_MAX_MS`. |
+| A move never lasts as long as asked | `ms` is capped at `MOVE_MAX_MS` (3000). Section 9 says why. |
 
 ### Uploading
 
@@ -674,4 +850,5 @@ Mascot robot ready.
 
 That silence is correct. `report()` only runs on the live control path, and with
 no browser connected every loop takes the failsafe branch. Serial traffic starts
-when you load the page.
+when you load the page, or when a `/move` arrives — each one logs a line like
+`move: spin_right for 1000 ms at 100%` as it starts.
