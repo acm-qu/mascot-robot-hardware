@@ -212,6 +212,11 @@ top     VIN GND D13 D12 D14 D27 D26 D25 D33 D32 D35 D34  VN  VP  EN
 bottom  3V3 GND D15  D2  D4 D16 D17  D5 D18 D19 D21 RX0 TX0 D22 D23
 ```
 
+![The 30-pin ESP32 DevKit v1](../docs/esp32-devkit-v1.jpeg)
+
+USB-C at the left-hand end, and the top row running to `D35 D34 VN VP EN` at the
+right — the two rows above read left to right in that orientation.
+
 **`VP` and `VN` are GPIO 36 and 39.** They are the chip's two dedicated sense
 inputs (ADC1_CH0 and ADC1_CH3) and the only pins on this board not labelled with
 their GPIO number — which is why the `IS` rows below give both. The tables use
