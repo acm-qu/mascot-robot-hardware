@@ -32,7 +32,7 @@ unsigned long lastCommand = 0;
 
 // millis() of the last time somebody actually pushed the knob -- a deflected
 // /drive, or the page STOP button -- and 0 if nobody has yet. The page idle
-// heartbeat does not touch it. voice-activated.ino reads it through
+// heartbeat does not touch it. routines.ino reads it through
 // stickActive() to decide whether the joystick currently outranks the voice
 // system; nothing else depends on it.
 unsigned long lastStickInput = 0;
@@ -80,7 +80,7 @@ void loop() {
 }
 
 // One control step, the whole of it. It is a function of its own only so that
-// voice-activated.ino can run it: a routine blocks loop() for its own length,
+// routines.ino can run it: a routine blocks loop() for its own length,
 // so it has to keep this step running or its moves would never reach a wheel.
 void controlStep(unsigned long now) {
   // A running move stamps lastCommand itself, so this has to come before the

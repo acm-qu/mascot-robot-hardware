@@ -65,7 +65,7 @@ void handleDrive() {
   lastCommand = millis();
 
   // A deflected knob is somebody driving, and that outranks the voice system
-  // for STICK_PRIORITY_MS -- see stickActive() in voice-activated.ino. The
+  // for STICK_PRIORITY_MS -- see stickActive() in routines.ino. The
   // 0,0 heartbeat below must not stamp it: that arrives at 5 Hz whenever the
   // page is open, so it would hold the priority forever.
   if (x != 0 || y != 0) {

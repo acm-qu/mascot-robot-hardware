@@ -1,9 +1,11 @@
-// Voice-activated routines, and the serial link the voice system speaks over.
+// Routines -- the sequences of moves the robot can play back on its own.
 //
-// A routine is a fixed sequence of named moves, played back to back, so
-// "dance" is one call instead of six timed requests from whatever heard the
-// word. serviceVoice() at the bottom of this tab is the other half: it reads
-// one plain-text command per line off Serial and calls the routine for it.
+// A routine is a fixed sequence of one or more of the named moves in MOVES[]
+// (moves.ino), played back to back -- and only those, never a raw stick
+// position -- so "dance" is one call instead of six timed requests from
+// whatever heard the word. serviceVoice() in serial-link.ino is the other
+// half: it reads one plain-text command per line off Serial and calls the
+// routine for it.
 //
 // Nothing here talks to a wheel. Every step goes through moves.ino --
 // runMove() hands a name to startMove() and then runs the control loop itself
@@ -32,9 +34,9 @@
 // wheel, so "10 cm" and "360 degrees" are stopwatch numbers in config.h, not
 // feedback -- see the comment there before trusting either.
 
-#include "voice-activated.h"
+#include "routines.h"
 
-// True while spin() or dance() is running. A routine pumps
+// True while a routine is running. A routine pumps
 // server.handleClient() and serviceVoice(), so a request or a spoken word
 // arriving mid-routine can call back in here; without this, "dance" heard
 // twice would nest one routine inside the other and the two would fight over
@@ -220,94 +222,37 @@ bool dance() {
   return finished;
 }
 
-// --- The voice link --------------------------------------------------------
+// --- Emotion routines ------------------------------------------------------
 //
-// One command per line of plain text on Serial, at the 115200 setup() already
-// opens. The line the voice system sends is its own word, not a move name out
-// of MOVES[]: those are the robot's vocabulary for the HTTP API, and nothing
-// says the two lists have to be the same.
+// Placeholders, one per emotion, with no moves yet: each returns true
+// straight away and never touches a wheel. To fill one in, follow dance() --
+// beginRoutine(), an && chain of runMove() calls on names from MOVES[], then
+// endRoutine(). None of them is on the voice link.
 
-// The line being assembled, and whether it has already run past the length
-// any real command has. Dropping an over-long line matters -- truncating it
-// instead would let "dancefloor" arrive as "dance". Only this tab's functions
-// touch either.
-String voiceLine;
-bool voiceTooLong = false;
-
-const unsigned int VOICE_MAX_LEN = 32;
-
-// One complete command. Lower-cased and trimmed by the caller, so this only
-// has to match words.
-//
-// "stop" is answered before anything else and is never refused. It is one of
-// only two ways a running routine can be ended at all now that the knob does
-// not do it, and refusing a request to stop is never the safe answer whatever
-// the priority rules say. Everything else goes through spin() and dance(),
-// which is where beginRoutine() applies the joystick priority and prints the
-// reason when it bites.
-void runVoiceCommand(const String &command) {
-  if (command == "stop") {
-    cancelMove();
-    webX = 0;
-    webY = 0;
-    lastCommand = millis();
-    Serial.println(F("voice: stop"));
-    return;
-  }
-
-  if (command == "spin") {
-    spin();
-    return;
-  }
-
-  if (command == "dance") {
-    dance();
-    return;
-  }
-
-  Serial.printf("voice: ignored \"%s\" -- say spin, dance or stop\n", command.c_str());
+bool surprised() {
+  return true;
 }
 
-// Read whatever has arrived and act on any complete line in it. Never blocks
-// waiting for one: loop() calls this every pass and there is no telling when
-// the rest of a line will turn up, so a part-line stays in voiceLine until the
-// newline that finishes it.
-//
-// Note that runVoiceCommand() can block here for the length of a whole
-// routine, and that the buffer is cleared before it is called -- a routine
-// pumps this function again from inside runMove(), and it has to start from
-// an empty line rather than from half of the one that launched it.
-void serviceVoice() {
-  while (Serial.available()) {
-    char c = (char)Serial.read();
+bool sad() {
+  return true;
+}
 
-    if (c == '\r') {
-      continue;               // CR LF or bare LF, both end a line
-    }
+bool happy() {
+  return true;
+}
 
-    if (c != '\n') {
-      if (voiceLine.length() >= VOICE_MAX_LEN) {
-        voiceTooLong = true;
-      } else {
-        voiceLine += c;
-      }
-      continue;
-    }
+bool angry() {
+  return true;
+}
 
-    String command = voiceLine;
-    bool tooLong = voiceTooLong;
-    voiceLine = "";
-    voiceTooLong = false;
+bool passionate() {
+  return true;
+}
 
-    if (tooLong) {
-      Serial.println(F("voice: line too long -- dropped"));
-      continue;
-    }
+bool annoyed() {
+  return true;
+}
 
-    command.trim();
-    command.toLowerCase();
-    if (command.length() > 0) {
-      runVoiceCommand(command);
-    }
-  }
+bool excited() {
+  return true;
 }

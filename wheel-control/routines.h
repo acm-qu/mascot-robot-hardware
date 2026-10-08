@@ -1,19 +1,21 @@
-// Voice-activated routines -- the two moves a spoken command asks for, the
-// serial link the voice system sends them over, and the rules that decide who
-// gets the wheels when the joystick and the voice system both want them.
+// Routines -- the sequences of moves the robot can play back on its own, the
+// serial link the voice system asks for them over, and the rules that decide
+// who gets the wheels when the joystick and the voice system both want them.
 //
-// The definitions are in voice-activated.ino; the numbers that decide how far,
-// how long and how long the joystick holds priority are in config.h. This
+// The routines are defined in routines.ino and the serial link in
+// serial-link.ino; the numbers that decide how far, how long and how long the
+// joystick holds priority are in config.h. This
 // header is the reference for whoever wires up the microphone: the one place
 // that says what a routine is, what calling one costs, and what can refuse or
 // stop it.
 //
 // The Arduino build concatenates every .ino in the folder and inserts a
 // prototype for each function, so no tab has to include this for the sketch to
-// compile -- voice-activated.ino includes it anyway, which is what makes these
-// declarations the ones that have to agree with the definitions. The helpers
-// beside them in that tab (runMove(), beginRoutine(), fullSpin(),
-// stickActive(), runVoiceCommand()) are deliberately not here: they are
+// compile -- routines.ino and serial-link.ino include it anyway, which is
+// what makes these declarations the ones that have to agree with the
+// definitions. The helpers beside them in those tabs (runMove(),
+// beginRoutine(), fullSpin(), stickActive(), runVoiceCommand()) are
+// deliberately not here: they are
 // internal, and the tab model already lets any tab call them if it must.
 // routineRunning() is the exception web.ino needs, and it is declared below.
 #pragma once
@@ -35,10 +37,10 @@
 // 32 characters are dropped whole rather than truncated -- truncating would
 // let "dancefloor" arrive as "dance".
 //
-// That vocabulary is this tab's own. It is deliberately not the MOVES[] table
-// from moves.ino: those names are the HTTP API's vocabulary, they are
-// case-sensitive, and nothing says a thing a person says out loud has to be
-// one of them.
+// That vocabulary is serial-link.ino's own. It is deliberately not the
+// MOVES[] table from moves.ino: those names are the HTTP API's vocabulary,
+// they are case-sensitive, and nothing says a thing a person says out loud
+// has to be one of them.
 //
 // Two practical notes. The board's own logging goes out of the same UART, so
 // whatever is listening at the other end has to tolerate lines it did not ask
@@ -93,9 +95,11 @@
 
 // === What a routine is =====================================================
 //
-// A routine is a fixed sequence of the named moves in moves.ino, played back
-// to back, so "dance" is one call instead of six timed requests from whatever
-// heard the word.
+// A routine is a fixed sequence of one or more of the named moves in
+// moves.ino, played back to back, so "dance" is one call instead of six timed
+// requests from whatever heard the word. Every step is a name out of MOVES[]:
+// a routine never sets a stick position of its own, so a movement that is not
+// in that table is not something a routine can do.
 //
 // Nothing in this tab touches a wheel. Each step is a real move, started with
 // startMove(), so a routine inherits everything a /move request gets:
@@ -154,7 +158,7 @@
 // in.
 //
 // Everything else is refused for the routine's length: a deflected knob, the
-// idle heartbeat, /move, and a second spin() or dance(). A routine never drops
+// idle heartbeat, /move, and a second routine. A routine never drops
 // EN and never arms a wheel -- arming stays the operator's explicit choice
 // (README section 9) -- so it cannot arm the robot, and losing an arm does not
 // abort it.
@@ -235,11 +239,12 @@
 // robot should ask too.
 bool routineRunning();
 
-// Read the voice link and run any complete command on it. Called from loop()
-// every pass, and again from inside a running routine. Returns as soon as
-// there is nothing left to read, EXCEPT that a command it recognises runs
-// there and then -- so this call blocks for the length of a routine the same
-// way spin() and dance() do.
+// Read the voice link and run any complete command on it. Defined in
+// serial-link.ino; declared here because routines.ino calls it too. Called
+// from loop() every pass, and again from inside a running routine. Returns as
+// soon as there is nothing left to read, EXCEPT that a command it recognises
+// runs there and then -- so this call blocks for the length of a routine the
+// same way spin() and dance() do.
 void serviceVoice();
 
 // One full 360-degree turn on the spot, counter-clockwise. Counter-clockwise
@@ -252,3 +257,15 @@ bool spin();
 // turn right, the same turn back left (so the heading comes out where it went
 // in), and then the same full turn spin() performs.
 bool dance();
+
+// The emotion routines. Placeholders for now: none has any moves yet, each
+// returns true straight away without touching a wheel, and none is on the
+// voice link. Once filled in they follow every rule above, the same as spin()
+// and dance().
+bool surprised();
+bool sad();
+bool happy();
+bool angry();
+bool passionate();
+bool annoyed();
+bool excited();
