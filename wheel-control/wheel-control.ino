@@ -16,7 +16,7 @@
 //   mini-server.h       the tiny WebServer stand-in over WiFiS3 (UNO R4 has none)
 //   mixing.ino          the math: stick position -> a signed PWM per wheel
 //   moves.ino           named moves: forward, spin_right, slight_left, ...
-//   faces.ino           /face route and "face:" serial command: a small move/servo gesture per expression
+//   faces.ino           the old /face gestures -- fully commented out; the tablet now sends bare labels handled in serial-link.ino
 //   routines.ino        the spin, dance and emotion routines, and who gets the wheels
 //   routines.h          what a routine is and promises; the reference for it and the serial link
 //   serial-link.ino     reads commands off VOICE_LINK and calls the routines

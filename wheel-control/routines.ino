@@ -227,7 +227,8 @@ bool dance() {
 // Placeholders, one per emotion, with no moves yet: each returns true
 // straight away and never touches a wheel. To fill one in, follow dance() --
 // beginRoutine(), an && chain of runMove() calls on names from MOVES[], then
-// endRoutine(). Only surprised() is on the serial link so far.
+// endRoutine(). All of them are on the serial link by bare name; excited() is
+// the one real gesture and it is head-only.
 
 // Both wheels reverse at full speed for a short hop back, about 10 cm -- the
 // "jump back" of a startled robot. Same distance as a NUDGE, in a fraction of
@@ -264,17 +265,21 @@ bool annoyed() {
   return true;
 }
 
+// Head-only: a quick servo shake, no wheels. So it deliberately skips
+// beginRoutine() -- no armed wheels and no joystick priority are needed to move
+// a head. It only refuses to nest inside a running routine. The two short
+// delay()s are well under COMMAND_TIMEOUT_MS.
 bool excited() {
-  if (!beginRoutine("excited")) {
+  if (inRoutine) {
+    logf("routine: excited refused -- one is already running\n");
     return false;
   }
 
+  logf("routine: excited\n");
   setServo(SERVO_START_DEG + 25);
   delay(FACE_SHAKE_MS);
   setServo(SERVO_START_DEG - 25);
   delay(FACE_SHAKE_MS);
   setServo(SERVO_START_DEG);
-
-  endRoutine("excited", true);
   return true;
 }

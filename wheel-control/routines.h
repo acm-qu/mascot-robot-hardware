@@ -28,20 +28,22 @@
 // One command per line of plain text on VOICE_LINK (config.h; Serial as
 // shipped), at 115200 -- on the UNO R4 WiFi that is a real UART behind the
 // on-board USB bridge, so the sender has to open the port at 115200 too.
-// Newline, carriage return or both end a line. readSerial() reads it, trims
-// it, lower-cases it and matches it against four words:
+// Newline, carriage return or both end a line; a word sent with no line
+// ending runs once 50 ms pass with nothing more arriving. readSerial() reads
+// it, drops control and non-ASCII bytes, trims it, lower-cases it, refuses
+// anything that is not a single word, and matches it against these words:
 //
 //   spin        one full turn on the spot, counter-clockwise
 //   dance       the six-step routine below
 //   surprised   a fast ~10 cm hop straight back
+//   excited     a quick head shake on the servo; no wheels, no arming needed
 //   stop        cancel whatever is running and centre the stick
+//   sad happy angry passionate annoyed idle
+//               the tablet's other expression labels; placeholders, no motion
 //
-// plus one prefixed command:
-//
-//   face:<expr>   run the gesture for a facial expression (faces.ino) -- this
-//                 is how the tablet, wired to the board over USB, drives ACMO's
-//                 body language: it writes "face:happy", "face:angry" and so on
-//                 as its on-screen expression changes. Not a spoken word.
+// The tablet (RobotLink.kt) writes each expression change as its bare label
+// -- "excited\n", "sad\n" -- with no "face:" prefix; the old face:<expr>
+// command and faces.ino are commented out.
 //
 // Anything else is ignored, with a line on serial saying so. Lines longer than
 // 32 characters are dropped whole rather than truncated -- truncating could

@@ -68,6 +68,22 @@ void runCommand(const String &cmd) {
     return;
   }
 
+  if (cmd == "excited") {
+    excited();
+    return;
+  }
+
+  // The tablet sends every expression change as its bare label (RobotLink.kt),
+  // so the rest of the vocabulary arrives here too. These are placeholders
+  // today; "idle" is the resting face and needs nothing.
+  if (cmd == "sad")        { sad();        return; }
+  if (cmd == "happy")      { happy();      return; }
+  if (cmd == "angry")      { angry();      return; }
+  if (cmd == "passionate") { passionate(); return; }
+  if (cmd == "annoyed")    { annoyed();    return; }
+  if (cmd == "idle")       { return; }
+
+  /*
   // "face:<expr>" -- the tablet's expression changes, same gestures as
   // GET /face (faces.ino).
   if (cmd.startsWith("face:")) {
@@ -79,57 +95,98 @@ void runCommand(const String &cmd) {
     }
     return;
   }
-
+*/
   logf("serial: \"%s\" -- unrecognized command\n", cmd.c_str());
 }
 
-// Read whatever has arrived and act on any complete line in it. Never blocks
-// waiting for one: loop() calls this every pass and there is no telling when
-// the rest of a line will turn up, so a part-line stays in lineBuf until the
-// line ending that finishes it.
+// How long a part-line may sit with nothing more arriving before it is taken
+// as the whole command. The tablet ends every word with '\n', so this only
+// matters for a sender that sends no line ending at all -- the Serial Monitor
+// on "No line ending", say. At 115200 a word arrives in well under a
+// millisecond, so a gap this long means the sender has finished.
+static const unsigned long LINE_IDLE_MS = 50;
+
+// When the last byte arrived, for LINE_IDLE_MS.
+static unsigned long lastByteAt = 0;
+
+// Take the line out of the buffer, finish cleaning it and hand it to
+// runCommand(). The buffer is emptied *before* runCommand() is called -- a
+// routine pumps readSerial() again from inside runMove(), and it has to start
+// from an empty line rather than from half of the one that launched it.
+static void finishLine() {
+  lineBuf[lineLen] = '\0';
+  String line(lineBuf);
+  bool tooLong = lineTooLong;
+  lineLen = 0;
+  lineTooLong = false;
+
+  if (tooLong) {
+    Serial.println(F("serial: line too long -- dropped"));
+    return;
+  }
+
+  line.trim();
+  line.toLowerCase();
+  if (line.length() == 0) {
+    return;
+  }
+
+  // A command is one word. "spin now" is not "spin" -- run neither half.
+  if (line.indexOf(' ') >= 0) {
+    logf("serial: \"%s\" -- not one word, dropped\n", line.c_str());
+    return;
+  }
+
+  runCommand(line);
+}
+
+// Read whatever has arrived and act on any complete command in it. Never
+// blocks waiting for one: loop() calls this every pass and there is no telling
+// when the rest of a word will turn up, so a part-word stays in lineBuf until
+// a line ending, or LINE_IDLE_MS of silence, finishes it.
 //
-// Either '\n' or '\r' ends a line, so the Serial Monitor works on Newline,
-// Carriage return or Both; the empty line a CR LF pair leaves behind is
-// skipped. A line longer than MAX_COMMAND_LENGTH is dropped whole --
-// truncating it could turn a long word into a short command.
+// Either '\n' or '\r' ends a line, so the Serial Monitor works on any of its
+// line-ending settings; the empty line a CR LF pair leaves behind is skipped.
+// Cleaning happens a byte at a time: tabs count as spaces, leading whitespace
+// is never stored, and any other control byte or non-ASCII byte (a UTF-8 BOM,
+// noise from the bridge at boot) is thrown away. What is left is trimmed,
+// lower-cased and must be a single word. A line longer than
+// MAX_COMMAND_LENGTH is dropped whole -- truncating it could turn a long word
+// into a short command.
 //
-// Note that runCommand() can block here for the length of a whole routine,
-// and that the buffer is cleared before it is called -- a routine pumps this
-// function again from inside runMove(), and it has to start from an empty
-// line rather than from half of the one that launched it.
+// Note that runCommand() can block here for the length of a whole routine.
 void readSerial() {
   while (VOICE_LINK.available() > 0) {
     int c = VOICE_LINK.read();
     if (c < 0) {
       break;
     }
+    lastByteAt = millis();
 
-    if (c != '\n' && c != '\r') {
-      if (lineLen < MAX_COMMAND_LENGTH) {
-        lineBuf[lineLen++] = (char)c;
-      } else {
-        lineTooLong = true;
+    if (c == '\n' || c == '\r') {
+      finishLine();
+      continue;
+    }
+
+    if (c == ' ' || c == '\t') {
+      if (lineLen == 0) {
+        continue;
       }
+      c = ' ';
+    } else if (c < 0x21 || c > 0x7e) {
       continue;
     }
 
-    // End of line: take the command out of the buffer *before* running it,
-    // so a routine that pumps readSerial() starts from an empty line.
-    lineBuf[lineLen] = '\0';
-    String line(lineBuf);
-    bool tooLong = lineTooLong;
-    lineLen = 0;
-    lineTooLong = false;
-
-    if (tooLong) {
-      Serial.println(F("serial: line too long -- dropped"));
-      continue;
+    if (lineLen < MAX_COMMAND_LENGTH) {
+      lineBuf[lineLen++] = (char)c;
+    } else {
+      lineTooLong = true;
     }
+  }
 
-    line.trim();
-    line.toLowerCase();
-    if (line.length() > 0) {
-      runCommand(line);
-    }
+  // A word with no line ending after it: once the sender has gone quiet, it
+  // is the whole command.
+  if (lineLen > 0 && millis() - lastByteAt >= LINE_IDLE_MS) {
+    finishLine();
   }
 }

@@ -373,7 +373,6 @@ disarm; it zeroes the axes and leaves the enables as you set them.
 | `GET /move?name=<move>&ms=<hold>&speed=<0..100>` | status, 400, or 409 while a routine runs | starts a named move on the board's own clock — see *Named moves* below |
 | `GET /moves` | the move names, comma-separated | what `/move` accepts, so a client need not hard-code the list |
 | `GET /servo?a=<0..180>` | status, or 400 | moves the servo to that angle, clamped. Independent of the wheels: it neither feeds the failsafe nor counts as stick input |
-| `GET /face?name=<expr>` | status, or 400 | runs the body-language gesture for an expression (`faces.ino`). A curl/WiFi convenience; the tablet drives faces over USB serial instead (below) |
 | anything else | 404 `not found` | |
 
 Every control route answers with the same one-line **status**:
@@ -425,10 +424,17 @@ the USB cable, as shipped — or `Serial1` on `D0`/`D1`, see `config.h`):
 | `dance` | back, forward, back, a small wiggle, then the full turn |
 | `surprised` | a fast ~10 cm hop straight back |
 | `stop` | cancels whatever is running and centres the stick; never refused |
-| `face:<expr>` | the same gesture as `GET /face?name=<expr>` |
+| `excited` | a quick servo head shake; head only, works with the wheels disarmed |
+| `sad` `happy` `angry` `passionate` `annoyed` `idle` | the tablet's other expression labels, sent bare; placeholders that do nothing yet |
 
-Commands are trimmed and lower-cased; newline, carriage return or both end a
-line, and a line over 32 characters is dropped whole. **Open the port at
+The old `face:<expr>` command and the `GET /face` route are disabled
+(`faces.ino` is commented out); the tablet now sends bare labels.
+
+A command is a single bare word, with no header or framing. Control and
+non-ASCII bytes are dropped, then the word is trimmed and lower-cased; a line
+with a space inside it is refused. Newline, carriage return or both end a
+line, and a word sent with no line ending runs once 50 ms pass with nothing
+more arriving. A line over 32 characters is dropped whole. **Open the port at
 115200.** On the UNO R4 WiFi the USB-C socket is bridged to the RA4M1's UART
 by the on-board ESP32-S3, so — unlike a native-USB board — the baud is real
 and a mismatch reads as garbage. The board's own log goes out on the same port,

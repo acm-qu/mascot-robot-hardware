@@ -38,7 +38,6 @@ void startServer() {
   server.on("/move", handleMove);
   server.on("/moves", handleMoves);
   server.on("/servo", handleServo);
-  server.on("/face", handleFace);
   server.onNotFound(handleNotFound);
 
   server.begin();
