@@ -33,8 +33,8 @@ unsigned long lastCommand = 0;
 // millis() of the last time somebody actually pushed the knob -- a deflected
 // /drive, or the page STOP button -- and 0 if nobody has yet. The page idle
 // heartbeat does not touch it. routines.ino reads it through
-// stickActive() to decide whether the joystick currently outranks the voice
-// system; nothing else depends on it.
+// stickActive() to decide whether the joystick currently outranks the serial
+// link; nothing else depends on it.
 unsigned long lastStickInput = 0;
 
 int leftSpeed = 0;
@@ -65,10 +65,10 @@ void setup() {
 void loop() {
   server.handleClient();
 
-  // The voice system is a serial line, and a command off it can block here
-  // for the length of a whole routine. It runs every pass rather than per
-  // control step so a line is never left sitting in the UART buffer.
-  serviceVoice();
+  // A command off the serial line can block here for the length of a whole
+  // routine. This runs every pass rather than per control step so a line is
+  // never left sitting in the UART buffer.
+  readSerial();
 
   unsigned long now = millis();
   if (now - lastStep < (unsigned long)LOOP_MS) {

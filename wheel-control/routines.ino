@@ -3,7 +3,7 @@
 // A routine is a fixed sequence of one or more of the named moves in MOVES[]
 // (moves.ino), played back to back -- and only those, never a raw stick
 // position -- so "dance" is one call instead of six timed requests from
-// whatever heard the word. serviceVoice() in serial-link.ino is the other
+// whatever sent the command. readSerial() in serial-link.ino is the other
 // half: it reads one plain-text command per line off Serial and calls the
 // routine for it.
 //
@@ -23,7 +23,7 @@
 //     longer interrupts it, and neither does a /move: both are turned away in
 //     web.ino by routineRunning(). The only things that end a routine early
 //     are the ones that call cancelMove() outright -- GET /stop, which is the
-//     page's STOP button, and "stop" on the voice link -- plus disarming a
+//     page's STOP button, and "stop" on the serial link -- plus disarming a
 //     wheel, which is hardware and cannot be argued with.
 //
 // So the knob wins before a routine begins and the routine wins once it has,
@@ -37,8 +37,8 @@
 #include "routines.h"
 
 // True while a routine is running. A routine pumps
-// server.handleClient() and serviceVoice(), so a request or a spoken word
-// arriving mid-routine can call back in here; without this, "dance" heard
+// server.handleClient() and readSerial(), so a request or a serial command
+// arriving mid-routine can call back in here; without this, "dance" received
 // twice would nest one routine inside the other and the two would fight over
 // the stick. Only this tab writes it.
 bool inRoutine = false;
@@ -56,8 +56,8 @@ bool routineRunning() {
 
 // Whether the joystick currently has the wheels. lastStickInput is stamped by
 // handleDrive() when the knob is actually deflected, and by handleStop(); the
-// page's idle 0,0 heartbeat deliberately does not stamp it, or voice would be
-// locked out for as long as anybody had the page open, which is most of the
+// page's idle 0,0 heartbeat deliberately does not stamp it, or serial commands
+// would be locked out for as long as anybody had the page open, which is most of the
 // time.
 //
 // This decides whether a routine may START, and nothing else -- a routine
@@ -76,7 +76,7 @@ bool stickActive() {
 // Refuse, and say why on serial, unless the board can actually perform a
 // routine right now.
 //
-// The joystick check is here rather than in serviceVoice() for the same
+// The joystick check is here rather than in readSerial() for the same
 // reason startMove() holds the MOVE_MAX_MS cap rather than handleMove() does:
 // put it at the gate every caller has to come through, and a /spin route
 // added later inherits it instead of having to remember it.
@@ -117,13 +117,13 @@ void endRoutine(const char *name, bool finished) {
 // This loop is loop(), deliberately. loop() is not running while a routine
 // blocks, and loop() is the only thing that turns webX/webY into PWM, so the
 // routine has to take over its jobs for its own length: service HTTP as fast
-// as it can, read the voice link, and run one controlStep() per LOOP_MS.
+// as it can, read the serial link, and run one controlStep() per LOOP_MS.
 //
 // Both pumps earn their place. handleClient() is what lets /stop reach the
 // board and cancel a routine that is already moving -- a deflected knob comes
 // in through the same call and is deliberately turned away, but the STOP
 // button has to get through, and it is the only HTTP route that can end a
-// routine. serviceVoice() is the same story for a spoken "stop", besides
+// routine. readSerial() is the same story for a serial "stop", besides
 // keeping the UART buffer from filling up over a five-second dance. A "spin"
 // or "dance" arriving through either pump is refused by the inRoutine guard
 // above, so neither can nest.
@@ -152,7 +152,7 @@ bool runMove(const char *name, unsigned long ms, int speed) {
 
   while (moveRunning()) {
     server.handleClient();
-    serviceVoice();
+    readSerial();
 
     unsigned long now = millis();
     if ((long)(now - giveUp) >= 0) {   // wrap-safe, as everywhere else
@@ -227,7 +227,7 @@ bool dance() {
 // Placeholders, one per emotion, with no moves yet: each returns true
 // straight away and never touches a wheel. To fill one in, follow dance() --
 // beginRoutine(), an && chain of runMove() calls on names from MOVES[], then
-// endRoutine(). None of them is on the voice link.
+// endRoutine(). None of them is on the serial link.
 
 bool surprised() {
   return true;

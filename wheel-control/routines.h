@@ -1,11 +1,11 @@
 // Routines -- the sequences of moves the robot can play back on its own, the
-// serial link the voice system asks for them over, and the rules that decide
-// who gets the wheels when the joystick and the voice system both want them.
+// serial link they are requested over, and the rules that decide who gets the
+// wheels when the joystick and the serial link both want them.
 //
 // The routines are defined in routines.ino and the serial link in
 // serial-link.ino; the numbers that decide how far, how long and how long the
 // joystick holds priority are in config.h. This
-// header is the reference for whoever wires up the microphone: the one place
+// header is the reference for whoever wires up the serial sender: the one place
 // that says what a routine is, what calling one costs, and what can refuse or
 // stop it.
 //
@@ -14,7 +14,7 @@
 // compile -- routines.ino and serial-link.ino include it anyway, which is
 // what makes these declarations the ones that have to agree with the
 // definitions. The helpers beside them in those tabs (runMove(),
-// beginRoutine(), fullSpin(), stickActive(), runVoiceCommand()) are
+// beginRoutine(), fullSpin(), stickActive(), runCommand()) are
 // deliberately not here: they are
 // internal, and the tab model already lets any tab call them if it must.
 // routineRunning() is the exception web.ino needs, and it is declared below.
@@ -23,10 +23,10 @@
 #include <Arduino.h>
 
 
-// === How the voice system talks to the board ===============================
+// === How serial commands reach the board ===================================
 //
 // One command per line of plain text on Serial, at the 115200 setup() already
-// opens. Either line ending works. serviceVoice() reads it, trims it,
+// opens. Either line ending works. readSerial() reads it, trims it,
 // lower-cases it and matches it against three words:
 //
 //   spin    one full turn on the spot, counter-clockwise
@@ -39,8 +39,8 @@
 //
 // That vocabulary is serial-link.ino's own. It is deliberately not the
 // MOVES[] table from moves.ino: those names are the HTTP API's vocabulary,
-// they are case-sensitive, and nothing says a thing a person says out loud
-// has to be one of them.
+// they are case-sensitive, and nothing says a serial command has to be one of
+// them.
 //
 // Two practical notes. The board's own logging goes out of the same UART, so
 // whatever is listening at the other end has to tolerate lines it did not ask
@@ -57,7 +57,7 @@
 // BEFORE A ROUTINE STARTS, THE JOYSTICK WINS. handleDrive() stamps the time
 // whenever the knob is actually deflected, and for STICK_PRIORITY_MS
 // afterwards -- 1.5 s as shipped -- beginRoutine() refuses and says so on
-// serial. The page's STOP button stamps it too. So a spoken "dance" that
+// serial. The page's STOP button stamps it too. So a "dance" command that
 // arrives while somebody is driving is simply dropped, and the driving
 // continues uninterrupted.
 //
@@ -67,29 +67,29 @@
 // keeps the wheels until it finishes or until somebody stops it deliberately:
 //
 //   - GET /stop, which is the STOP button on the page;
-//   - "stop" on the voice link;
+//   - "stop" on the serial link;
 //   - GET /enable?l=0&r=0, which gates the bridges off in hardware and does
 //     not care what the software thinks.
 //
 // The first two are both cancelMove(), which is the one door left open, and
 // they reach the board because a routine keeps pumping handleClient() and
-// serviceVoice() while it blocks. Note what this costs: the knob is no longer
+// readSerial() while it blocks. Note what this costs: the knob is no longer
 // an emergency stop during a routine. The STOP button is, and it is the only
 // HTTP route that can end one.
 //
 // What does NOT count as driving, for the first rule, is the page's idle 0,0
 // heartbeat. It arrives at 5 Hz for as long as anybody has the page open, so
-// counting it would mean the voice system never worked with a phone connected.
+// counting it would mean serial commands never worked with a phone connected.
 // The window exists for the same reason: somebody driving crosses centre,
 // pauses between pushes, and sends three zeros on release, and none of those
 // gaps should be a chance for a routine to jump in.
 //
 // A deflected knob still stamps the priority while a routine runs, even though
 // it is ignored, so the moment a routine ends the person who was pushing the
-// knob already outranks whatever the voice system says next.
+// knob already outranks whatever arrives on serial next.
 //
-// "stop" is the one voice command neither rule applies to. The joystick
-// outranking the voice system is about who gets to MOVE the robot; there is no
+// "stop" is the one serial command neither rule applies to. The joystick
+// outranking the serial link is about who gets to MOVE the robot; there is no
 // reading of that which says a request to stop should be ignored.
 
 
@@ -97,7 +97,7 @@
 //
 // A routine is a fixed sequence of one or more of the named moves in
 // moves.ino, played back to back, so "dance" is one call instead of six timed
-// requests from whatever heard the word. Every step is a name out of MOVES[]:
+// requests from whatever sent the command. Every step is a name out of MOVES[]:
 // a routine never sets a stick position of its own, so a movement that is not
 // in that table is not something a routine can do.
 //
@@ -126,7 +126,7 @@
 // the routine runs loop()'s control step itself -- controlStep(), one call per
 // LOOP_MS -- for its whole length.
 //
-// server.handleClient() and serviceVoice() are pumped in the same inner loop,
+// server.handleClient() and readSerial() are pumped in the same inner loop,
 // so the page still loads, the HTTP API still answers, and a stop from either
 // side can still get in. Everything else on the board waits.
 //
@@ -147,7 +147,7 @@
 // Only a deliberate stop, and there are three:
 //
 //   - GET /stop, the page's STOP button;
-//   - "stop" on the voice link;
+//   - "stop" on the serial link;
 //   - disarming a wheel with GET /enable, which stops that wheel in hardware.
 //     The routine itself keeps running and ends at its own pace, because the
 //     enables gate the bridges rather than the sequence.
@@ -222,7 +222,7 @@
 //
 // What still holds in that window, in the order you would reach for them:
 //
-//   - the STOP button on the page, and "stop" on the voice link. Both are
+//   - the STOP button on the page, and "stop" on the serial link. Both are
 //     software and both depend on the routine's pumps still running.
 //   - the per-wheel enables, which gate the bridges in hardware. Disarming
 //     works whatever the sketch is doing.
@@ -239,13 +239,13 @@
 // robot should ask too.
 bool routineRunning();
 
-// Read the voice link and run any complete command on it. Defined in
+// Read the serial link and run any complete command on it. Defined in
 // serial-link.ino; declared here because routines.ino calls it too. Called
 // from loop() every pass, and again from inside a running routine. Returns as
 // soon as there is nothing left to read, EXCEPT that a command it recognises
 // runs there and then -- so this call blocks for the length of a routine the
 // same way spin() and dance() do.
-void serviceVoice();
+void readSerial();
 
 // One full 360-degree turn on the spot, counter-clockwise. Counter-clockwise
 // because it is the spin_left move: x = -512 through the arcade mix is the
@@ -260,7 +260,7 @@ bool dance();
 
 // The emotion routines. Placeholders for now: none has any moves yet, each
 // returns true straight away without touching a wheel, and none is on the
-// voice link. Once filled in they follow every rule above, the same as spin()
+// serial link. Once filled in they follow every rule above, the same as spin()
 // and dance().
 bool surprised();
 bool sad();

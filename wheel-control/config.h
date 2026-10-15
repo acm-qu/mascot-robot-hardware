@@ -84,26 +84,26 @@ int NUDGE_SPEED = 50;
 unsigned long WIGGLE_MS = 250;      // a small turn on the spot, either way
 int WIGGLE_SPEED = 60;
 
-// The joystick outranks the voice system, and this is how long it keeps the
-// wheels after the last time somebody actually pushed the knob. A voice
-// routine asked for inside this window is refused outright.
+// The joystick outranks the serial link, and this is how long it keeps the
+// wheels after the last time somebody actually pushed the knob. A routine
+// requested over serial inside this window is refused outright.
 //
 // This window is only about STARTING a routine, and it is the whole of the
 // joystick priority rather than half of it. Once a routine is running it owns
 // the wheels outright: the knob does not interrupt one and neither does a
-// /move, and only a deliberate stop -- GET /stop, or "stop" on the voice
+// /move, and only a deliberate stop -- GET /stop, or "stop" on the serial
 // link, both of which call cancelMove() -- ends it early. routines.h sets out
 // the whole arrangement.
 //
 // The window is what makes this a priority rather than a race. Nobody drives
 // by deflecting the stick every millisecond: they cross centre, they pause
-// between pushes, and letting go sends three zeros. Too short and the voice
-// system can jump into a gap mid-drive; too long and "dance" stops working
+// between pushes, and letting go sends three zeros. Too short and a serial
+// command can jump into a gap mid-drive; too long and "dance" stops working
 // for a while after anyone touches the page. A second and a half is a pause,
 // not a gap.
 //
 // Only a deflected knob and the page's STOP button count. The page's idle
 // 0,0 heartbeat deliberately does not -- it arrives at 5 Hz for as long as
-// anybody has the page open, so counting it would mean voice never worked
-// with a phone connected.
+// anybody has the page open, so counting it would mean serial commands never
+// worked with a phone connected.
 unsigned long STICK_PRIORITY_MS = 1500;
