@@ -1,21 +1,33 @@
 // The access point and every HTTP route. Each handler runs from inside
 // server.handleClient(), on the same task as loop(), which is why none of the
-// globals it writes need locking.
+// globals it writes need locking. The server is MiniServer (mini-server.h), a
+// small WebServer stand-in over WiFiS3 -- the UNO R4's Wi-Fi library has no
+// WebServer of its own.
 
 #include "page.h"
 
 void startAccessPoint() {
-  WiFi.mode(WIFI_AP);
+  if (WiFi.status() == WL_NO_MODULE) {
+    Serial.println(F("no Wi-Fi module found -- nothing can drive the robot"));
+    return;
+  }
 
-  if (!WiFi.softAP(AP_SSID, AP_PASS)) {
-    Serial.println(F("softAP() failed -- no network, nothing can drive the robot"));
+  Serial.print(F("Wi-Fi firmware "));
+  Serial.println(WiFi.firmwareVersion());
+
+  // Pin the AP to 192.168.4.1 so the page, the README and any tablet client
+  // keep the address they had on the ESP32.
+  WiFi.config(IPAddress(192, 168, 4, 1));
+
+  if (WiFi.beginAP(AP_SSID, AP_PASS) != WL_AP_LISTENING) {
+    Serial.println(F("beginAP() failed -- no network, nothing can drive the robot"));
     return;
   }
 
   Serial.print(F("access point \""));
   Serial.print(AP_SSID);
   Serial.print(F("\" up, open http://"));
-  Serial.println(WiFi.softAPIP());
+  Serial.println(WiFi.localIP());
 }
 
 void startServer() {
@@ -25,9 +37,10 @@ void startServer() {
   server.on("/enable", handleEnable);
   server.on("/move", handleMove);
   server.on("/moves", handleMoves);
+  server.on("/servo", handleServo);
+  server.on("/face", handleFace);
   server.onNotFound(handleNotFound);
 
-  server.enableDelay(false);   // handleClient() must not sleep, loop() is the control loop
   server.begin();
 }
 
@@ -35,12 +48,14 @@ void handleRoot() {
   server.send_P(200, "text/html", INDEX_HTML);
 }
 
-// "<leftSpeed>,<rightSpeed>,<leftEnabled>,<rightEnabled>" -- every route
-// answers with it, so the page's readouts and buttons track the board no
-// matter which request came back last, or how many people have it open.
+// "<leftSpeed>,<rightSpeed>,<leftEnabled>,<rightEnabled>,<servoDeg>" -- every
+// route answers with it, so the page's readouts, buttons and slider track the
+// board no matter which request came back last, or how many people have it
+// open.
 String statusBody() {
   return String(leftSpeed) + "," + String(rightSpeed) + ","
-       + (leftEnabled ? "1" : "0") + "," + (rightEnabled ? "1" : "0");
+       + (leftEnabled ? "1" : "0") + "," + (rightEnabled ? "1" : "0") + ","
+       + String(servoDeg);
 }
 
 void handleEnable() {
@@ -53,7 +68,7 @@ void handleEnable() {
     enableWheel('R', server.arg("r").toInt() != 0);
   }
 
-  Serial.printf("enable: L=%d R=%d\n", leftEnabled, rightEnabled);
+  logf("enable: L=%d R=%d\n", leftEnabled, rightEnabled);
   server.send(200, "text/plain", statusBody());
 }
 
@@ -141,6 +156,19 @@ void handleMove() {
 // than hard-code the list.
 void handleMoves() {
   server.send(200, "text/plain", listMoves());
+}
+
+// GET /servo?a=<0..180>. The servo is its own thing: it does not feed the
+// failsafe, count as stick input or wait for a routine -- it just goes there.
+void handleServo() {
+  if (!server.hasArg("a")) {
+    server.send(400, "text/plain", "servo needs a=<0..180>");
+    return;
+  }
+
+  setServo(server.arg("a").toInt());
+  logf("servo: %d\n", servoDeg);
+  server.send(200, "text/plain", statusBody());
 }
 
 void handleNotFound() {

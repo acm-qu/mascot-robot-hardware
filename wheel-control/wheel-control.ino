@@ -3,20 +3,27 @@
 // in the Arduino IDE brings every other file in the folder along as a tab.
 // Upload compiles all of them together. See the README for board settings.
 
-#include <WiFi.h>
-#include <WebServer.h>
+#include <WiFiS3.h>
+#include <stdarg.h>
 
 #include "config.h"
+#include "mini-server.h"
 
 // The sketch is split across the tabs the Arduino IDE shows along the top:
 //
-//   wheel-control.ino   this file: shared globals, setup(), loop(), failsafe()
+//   wheel-control.ino   this file: shared globals, logf(), setup(), bootDance(), loop(), failsafe()
 //   config.h            pins, tuning, Wi-Fi credentials -- the one file to edit
+//   mini-server.h       the tiny WebServer stand-in over WiFiS3 (UNO R4 has none)
 //   mixing.ino          the math: stick position -> a signed PWM per wheel
 //   moves.ino           named moves: forward, spin_right, slight_left, ...
+//   faces.ino           /face route and "face:" serial command: a small move/servo gesture per expression
+//   routines.ino        the spin, dance and emotion routines, and who gets the wheels
+//   routines.h          what a routine is and promises; the reference for it and the serial link
+//   serial-link.ino     reads commands off VOICE_LINK and calls the routines
 //   web.ino             the access point and every HTTP route
 //   page.h              the control page the browser loads
-//   wheels.ino          the two IBT-2 bridges: pins, enable, PWM writes
+//   servo.ino           the servo: attach, angle -> pulse (Servo library)
+//   wheels.ino          the L298N: direction pins, enable/PWM writes
 //
 // The IDE compiles all the .ino tabs as one file -- this one first, the rest
 // in alphabetical order, with a prototype for every function inserted up
@@ -24,7 +31,21 @@
 // defined in this file (a tab may keep state only its own functions touch),
 // and no struct of ours appears in a function signature.
 
-WebServer server(80);
+MiniServer server(80);
+
+// printf() for the log. The UNO R4 core's Serial has no printf(), so
+// the sketch's log lines route through this instead -- one buffer, formatted
+// with vsnprintf and printed. Defined here in the main tab so every tab can
+// call it; the explicit prototype keeps the variadic signature unambiguous.
+void logf(const char *fmt, ...);
+void logf(const char *fmt, ...) {
+  char buf[160];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(buf, sizeof(buf), fmt, ap);
+  va_end(ap);
+  Serial.print(buf);
+}
 
 int webX = 0;
 int webY = 0;
@@ -43,11 +64,22 @@ int rightSpeed = 0;
 bool leftEnabled = false;
 bool rightEnabled = false;
 
+// Where the servo was last told to go, 0-180. servo.ino writes it, web.ino
+// reports it in every status line so the page's slider tracks the board.
+int servoDeg = 0;
+
 unsigned long lastStep = 0;
 unsigned long lastPrint = 0;
 
 void setup() {
   Serial.begin(115200);
+
+  // The serial link (serial-link.ino) reads VOICE_LINK. When that is Serial
+  // it is already open; when config.h points it at Serial1 it needs its own
+  // begin(), at the same 115200 the sender is told to use.
+  if ((void *)&VOICE_LINK != (void *)&Serial) {
+    VOICE_LINK.begin(115200);
+  }
 
   // Motors first, and stopped, before the radio draws its start-up current.
   setupRightWheel();
@@ -56,10 +88,42 @@ void setup() {
   enableWheel('R', START_ENABLED);
   enableWheel('L', START_ENABLED);
 
+  // After the wheels. On the UNO R4 the Servo library and analogWrite() both
+  // draw on the RA4M1's general-purpose timers; the servo pin is kept off the
+  // wheel EN pins so they do not contend -- see servo.ino.
+  setupServo();
+
   startAccessPoint();
   startServer();
 
+  // Disabled for now -- uncomment to have the robot dance on every boot.
+  // bootDance();
+
   Serial.println(F("Mascot robot ready."));
+}
+
+// When it is enabled in setup() (it ships commented out), the first thing the
+// robot does after a flash -- and after every reset, since setup() cannot tell
+// the two apart -- is the dance routine from routines.ino. It goes after startServer() on purpose: a routine pumps
+// server.handleClient() while it blocks, and the page STOP button is the only
+// HTTP route that can end one, so a dance started before the server was up
+// would have no software stop at all.
+//
+// beginRoutine() refuses unless both wheels are armed, and START_ENABLED ships
+// false, so the wheels are armed for exactly the length of the dance and put
+// back to START_ENABLED afterwards, whatever dance() returned. enableWheel()
+// zeroes the stored speed on both edges, so the board still lands in the
+// documented state -- disarmed unless config.h says otherwise -- with nothing
+// left to resume. Put the chassis on blocks before uploading: the knob cannot
+// interrupt a running routine.
+void bootDance() {
+  enableWheel('R', true);
+  enableWheel('L', true);
+
+  dance();
+
+  enableWheel('R', START_ENABLED);
+  enableWheel('L', START_ENABLED);
 }
 
 void loop() {

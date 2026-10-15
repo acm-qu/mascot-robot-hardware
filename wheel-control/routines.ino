@@ -87,27 +87,27 @@ bool stickActive() {
 // than arming anything itself.
 bool beginRoutine(const char *name) {
   if (inRoutine) {
-    Serial.printf("routine: %s refused -- one is already running\n", name);
+    logf("routine: %s refused -- one is already running\n", name);
     return false;
   }
   if (stickActive()) {
-    Serial.printf("routine: %s refused -- the joystick has the wheels\n", name);
+    logf("routine: %s refused -- the joystick has the wheels\n", name);
     return false;
   }
   if (!leftEnabled || !rightEnabled) {
-    Serial.printf("routine: %s refused -- arm both wheels first\n", name);
+    logf("routine: %s refused -- arm both wheels first\n", name);
     return false;
   }
 
   inRoutine = true;
-  Serial.printf("routine: %s\n", name);
+  logf("routine: %s\n", name);
   return true;
 }
 
 void endRoutine(const char *name, bool finished) {
   inRoutine = false;
   if (!finished) {
-    Serial.printf("routine: %s cut short\n", name);
+    logf("routine: %s cut short\n", name);
   }
 }
 
@@ -133,7 +133,7 @@ void endRoutine(const char *name, bool finished) {
 // routine in both cases.
 bool runMove(const char *name, unsigned long ms, int speed) {
   if (!startMove(String(name), (long)ms, speed)) {
-    Serial.printf("routine: no move named \"%s\"\n", name);
+    logf("routine: no move named \"%s\"\n", name);
     return false;
   }
 
@@ -265,5 +265,16 @@ bool annoyed() {
 }
 
 bool excited() {
+  if (!beginRoutine("excited")) {
+    return false;
+  }
+
+  setServo(SERVO_START_DEG + 25);
+  delay(FACE_SHAKE_MS);
+  setServo(SERVO_START_DEG - 25);
+  delay(FACE_SHAKE_MS);
+  setServo(SERVO_START_DEG);
+
+  endRoutine("excited", true);
   return true;
 }

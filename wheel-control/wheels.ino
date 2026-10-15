@@ -1,7 +1,15 @@
-// The two IBT-2 (BTS7960) bridges. This is the only tab that touches a pin:
-// setupLeftWheel() / setupRightWheel() configure them, enableWheel() is the
-// only function that moves EN, and rotateWheel() is the only one that writes
-// PWM. Nothing here knows about the stick, the page or the network.
+// The L298N: one board, both wheels. This is the only tab that touches a
+// wheel pin: setupLeftWheel() / setupRightWheel() configure them,
+// enableWheel() is the only function that changes whether a wheel may run, and
+// rotateWheel() is the only one that writes the pins. Nothing here knows about
+// the stick, the page or the network.
+//
+// Per wheel the L298N takes two direction inputs and one enable: IN1/IN2 and
+// ENA for the right wheel (OUT1/OUT2), IN3/IN4 and ENB for the left
+// (OUT3/OUT4). The direction pins choose which way current flows -- HIGH/LOW
+// one way, LOW/HIGH the other, LOW/LOW lets the motor coast -- and the enable
+// pin carries the PWM that sets the speed. So "disarmed" is simply ENA or ENB
+// held at 0: no duty cycle, no drive, whatever the IN pins say.
 
 void driveWheel(char wheel, int speed) {
   int dir = 0;
@@ -18,34 +26,29 @@ void stopWheels() {
   rotateWheel('R', 0, 0);
 }
 
-// EN starts LOW: the bridge is gated off before anything else runs.
-// IS are the driver's own current-sense outputs -- they are INPUTs here. Never
-// drive them, or the ESP32 and the BTS7960 fight over the same net.
+// Direction pins LOW and the enable at 0 before anything else runs: the motor
+// coasts and no duty cycle can reach it.
 void setupLeftWheel() {
-  pinMode(LEFT_R_PWM, OUTPUT);
-  pinMode(LEFT_L_PWM, OUTPUT);
-  pinMode(LEFT_R_EN, OUTPUT);
-  pinMode(LEFT_L_EN, OUTPUT);
-  digitalWrite(LEFT_R_EN, LOW);
-  digitalWrite(LEFT_L_EN, LOW);
-  pinMode(LEFT_R_IS, INPUT);
-  pinMode(LEFT_L_IS, INPUT);
+  pinMode(LEFT_IN3, OUTPUT);
+  pinMode(LEFT_IN4, OUTPUT);
+  digitalWrite(LEFT_IN3, LOW);
+  digitalWrite(LEFT_IN4, LOW);
+  pinMode(LEFT_EN, OUTPUT);
+  analogWrite(LEFT_EN, 0);
 }
 
 void setupRightWheel() {
-  pinMode(RIGHT_R_PWM, OUTPUT);
-  pinMode(RIGHT_L_PWM, OUTPUT);
-  pinMode(RIGHT_R_EN, OUTPUT);
-  pinMode(RIGHT_L_EN, OUTPUT);
-  digitalWrite(RIGHT_R_EN, LOW);
-  digitalWrite(RIGHT_L_EN, LOW);
-  pinMode(RIGHT_R_IS, INPUT);
-  pinMode(RIGHT_L_IS, INPUT);
+  pinMode(RIGHT_IN1, OUTPUT);
+  pinMode(RIGHT_IN2, OUTPUT);
+  digitalWrite(RIGHT_IN1, LOW);
+  digitalWrite(RIGHT_IN2, LOW);
+  pinMode(RIGHT_EN, OUTPUT);
+  analogWrite(RIGHT_EN, 0);
 }
 
-// The only function that touches EN. Both halves of a bridge move together,
-// and the PWM is always brought down first so neither edge can hand the driver
-// a live duty cycle.
+// The only function that arms or disarms a wheel. The PWM is brought to 0 and
+// the stored speed zeroed on both edges, so re-arming cannot resume at whatever
+// the wheel was doing, and disarming cannot leave a duty cycle on the pin.
 void enableWheel(char wheel, bool on) {
   rotateWheel(wheel, 0, 0);
 
@@ -56,27 +59,26 @@ void enableWheel(char wheel, bool on) {
     leftSpeed = 0;
     leftEnabled = on;
   }
-
-  int level = on ? HIGH : LOW;
-  digitalWrite((wheel == 'R') ? RIGHT_R_EN : LEFT_R_EN, level);
-  digitalWrite((wheel == 'R') ? RIGHT_L_EN : LEFT_L_EN, level);
 }
 
+// The only function that writes a wheel pin. A disarmed wheel gets 0 on its
+// enable pin no matter what it is asked for -- that is the whole of the
+// arm/disarm safety on an L298N, so it is enforced here, at the pin, and not
+// left to the callers.
 void rotateWheel(char wheel, int dir, int speed) {
-  int rPin = (wheel == 'R') ? RIGHT_R_PWM : LEFT_R_PWM;
-  int lPin = (wheel == 'R') ? RIGHT_L_PWM : LEFT_L_PWM;
+  int aPin = (wheel == 'R') ? RIGHT_IN1 : LEFT_IN3;
+  int bPin = (wheel == 'R') ? RIGHT_IN2 : LEFT_IN4;
+  int enPin = (wheel == 'R') ? RIGHT_EN : LEFT_EN;
+  bool enabled = (wheel == 'R') ? rightEnabled : leftEnabled;
   speed = constrain(speed, 0, 255);
+  if (!enabled || dir == 0) {
+    speed = 0;
+  }
 
-  if (dir >= 0) {
-    analogWrite(lPin, 0);
-  }
-  if (dir <= 0) {
-    analogWrite(rPin, 0);
-  }
-  if (dir == 1) {
-    analogWrite(rPin, speed);
-  }
-  if (dir == -1) {
-    analogWrite(lPin, speed);
-  }
+  // Duty off first, then the direction, then the duty back: the motor never
+  // sees a direction change under power.
+  analogWrite(enPin, 0);
+  digitalWrite(aPin, (dir == 1) ? HIGH : LOW);
+  digitalWrite(bPin, (dir == -1) ? HIGH : LOW);
+  analogWrite(enPin, speed);
 }

@@ -25,28 +25,38 @@
 
 // === How serial commands reach the board ===================================
 //
-// One command per line of plain text on Serial, at the 115200 setup() already
-// opens. Either line ending works. readSerial() reads it, trims it,
-// lower-cases it and matches it against three words:
+// One command per line of plain text on VOICE_LINK (config.h; Serial as
+// shipped), at 115200 -- on the UNO R4 WiFi that is a real UART behind the
+// on-board USB bridge, so the sender has to open the port at 115200 too.
+// Newline, carriage return or both end a line. readSerial() reads it, trims
+// it, lower-cases it and matches it against four words:
 //
-//   spin    one full turn on the spot, counter-clockwise
-//   dance   the six-step routine below
-//   stop    cancel whatever is running and centre the stick
+//   spin        one full turn on the spot, counter-clockwise
+//   dance       the six-step routine below
+//   surprised   a fast ~10 cm hop straight back
+//   stop        cancel whatever is running and centre the stick
+//
+// plus one prefixed command:
+//
+//   face:<expr>   run the gesture for a facial expression (faces.ino) -- this
+//                 is how the tablet, wired to the board over USB, drives ACMO's
+//                 body language: it writes "face:happy", "face:angry" and so on
+//                 as its on-screen expression changes. Not a spoken word.
 //
 // Anything else is ignored, with a line on serial saying so. Lines longer than
-// 32 characters are dropped whole rather than truncated -- truncating would
-// let "dancefloor" arrive as "dance".
+// 32 characters are dropped whole rather than truncated -- truncating could
+// turn a long line of junk into a real command.
 //
 // That vocabulary is serial-link.ino's own. It is deliberately not the
 // MOVES[] table from moves.ino: those names are the HTTP API's vocabulary,
 // they are case-sensitive, and nothing says a serial command has to be one of
 // them.
 //
-// Two practical notes. The board's own logging goes out of the same UART, so
-// whatever is listening at the other end has to tolerate lines it did not ask
-// for -- every routine reports itself there. And the Arduino Serial Monitor is
-// a complete test harness for all of this: set its line ending to Newline,
-// type dance, press enter.
+// Two practical notes. The board's own logging goes out on Serial -- the same
+// port, as shipped -- so whatever is listening at the other end has to
+// tolerate lines it did not ask for: every routine reports itself there. And the Arduino Serial Monitor is
+// a complete test harness for all of this: set it to 115200 baud, type
+// dance, press enter.
 
 
 // === Who gets the wheels ===================================================
