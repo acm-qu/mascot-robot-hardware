@@ -55,22 +55,30 @@ void runCommand(const String &command) {
 // routine, and that the buffer is cleared before it is called -- a routine
 // pumps this function again from inside runMove(), and it has to start from
 // an empty line rather than from half of the one that launched it.
+
 void readSerial() {
   while (Serial.available()) {
     char c = static_cast<char>(Serial.read());
 
-     if (c == '\r') {
+    if (c == '\r') {
       continue;               // CR LF or bare LF, both end a line
     }
 
     if (c != '\n') {
-      command += c;
-  
-    command.trim();
-    command.toLowerCase();
-    if (command.length() > 0) {
-    runCommand(command);
+      if (command.length() < MAX_COMMAND_LENGTH) {
+        command += c;
+      }
+      continue;
     }
-      
+
+    // End of line: take the command out of the buffer *before* running it,
+    // so a routine that pumps readSerial() starts from an empty line.
+    String line = command;
+    command = "";
+    line.trim();
+    line.toLowerCase();
+    if (line.length() > 0) {
+      runCommand(line);
+    }
   }
 }
