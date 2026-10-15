@@ -227,10 +227,21 @@ bool dance() {
 // Placeholders, one per emotion, with no moves yet: each returns true
 // straight away and never touches a wheel. To fill one in, follow dance() --
 // beginRoutine(), an && chain of runMove() calls on names from MOVES[], then
-// endRoutine(). None of them is on the serial link.
+// endRoutine(). Only surprised() is on the serial link so far.
 
+// Both wheels reverse at full speed for a short hop back, about 10 cm -- the
+// "jump back" of a startled robot. Same distance as a NUDGE, in a fraction of
+// the time, so SURPRISED_MS is shorter than NUDGE_MS and needs calibrating on
+// its own.
 bool surprised() {
-  return true;
+  if (!beginRoutine("surprised")) {
+    return false;
+  }
+
+  bool finished = runMove("backward", SURPRISED_MS, SURPRISED_SPEED);
+
+  endRoutine("surprised", finished);
+  return finished;
 }
 
 bool sad() {

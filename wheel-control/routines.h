@@ -198,6 +198,7 @@
 //   SPIN_360_MS   SPIN_SPEED     one full turn on the spot
 //   NUDGE_MS      NUDGE_SPEED    roughly 10 cm forward or back
 //   WIGGLE_MS     WIGGLE_SPEED   a small turn on the spot, either way
+//   SURPRISED_MS  SURPRISED_SPEED roughly 10 cm straight back, fast
 //
 // Two traps worth knowing before you tune. Distance is not proportional to
 // time at these lengths, because SLEW spends the first ~0.4 s of every step
@@ -258,10 +259,11 @@ bool spin();
 // in), and then the same full turn spin() performs.
 bool dance();
 
-// The emotion routines. Placeholders for now: none has any moves yet, each
-// returns true straight away without touching a wheel, and none is on the
-// serial link. Once filled in they follow every rule above, the same as spin()
-// and dance().
+// The emotion routines. surprised() is filled in (a fast ~10 cm hop back) and
+// is on the serial link as "surprised". The rest are placeholders for now: none
+// has any moves yet, each returns true straight away without touching a wheel,
+// and none is on the serial link. Once filled in they follow every rule above,
+// the same as spin() and dance().
 bool surprised();
 bool sad();
 bool happy();

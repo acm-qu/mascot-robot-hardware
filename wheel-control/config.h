@@ -84,6 +84,9 @@ int NUDGE_SPEED = 50;
 unsigned long WIGGLE_MS = 250;      // a small turn on the spot, either way
 int WIGGLE_SPEED = 60;
 
+unsigned long SURPRISED_MS = 300;   // roughly 10 cm straight back, fast (surprised())
+int SURPRISED_SPEED = 100;
+
 // The joystick outranks the serial link, and this is how long it keeps the
 // wheels after the last time somebody actually pushed the knob. A routine
 // requested over serial inside this window is refused outright.
