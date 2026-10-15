@@ -1,11 +1,11 @@
 # Wheel Control
 
 The `wheel-control` sketch drives the mascot robot's two wheels from an
-**on-screen joystick served by the ESP32 itself**. The board brings up its own
+**on-screen joystick served by the Arduino UNO R4 WiFi itself**. The board brings up its own
 Wi-Fi access point, serves a single page, and that page posts stick positions
-back to it about 20 times a second. Each wheel has its own IBT-2 (BTS7960)
-H-bridge; the sketch mixes the two axes into a left and a right wheel speed and
-writes those speeds out as PWM.
+back to it about 20 times a second. One L298N dual H-bridge drives both
+wheels; the sketch mixes the two axes into a left and a right wheel speed and
+writes those speeds out as a direction and a PWM per wheel.
 
 It also knows a handful of **named moves** — `forward`, `spin_right`,
 `slight_left` and so on — that one `GET /move` request starts and the board
@@ -15,10 +15,9 @@ streaming stick positions. See section 4.
 The sketch is split across seven files, one per concern; section 5 says what
 lives where.
 
-There is no physical joystick any more. `R_EN` / `L_EN` are back on GPIOs, so
-each wheel's bridge can be gated in hardware from the page — **both wheels come
-up disarmed** and stay that way until you turn them on. `R_IS` / `L_IS` are
-wired too, as inputs.
+There is no physical joystick any more. The L298N's `ENA` / `ENB` are on the
+board's PWM pins (jumpers off), so each wheel can be gated in hardware from the page — **both
+wheels come up disarmed** and stay that way until you turn them on.
 
 Two things stop the robot: the per-wheel enable, and a **link failsafe** that
 cuts the drive if no command arrives for 500 ms. See section 9.
@@ -27,23 +26,24 @@ cuts the drive if no command arrives for 500 ms. See section 9.
 
 **`wheel-control.ino` is the file you open and upload.** An Arduino sketch's
 entry point is the `.ino` named after its folder — there is no `main` or
-`index` — and opening it in the Arduino IDE brings the other six files along
+`index` — and opening it in the Arduino IDE brings the other ten files along
 as tabs. *Upload* compiles all of them together.
 
-1. Install the ESP32 board package once: *Preferences → Additional Boards
-   Manager URLs* → `https://espressif.github.io/arduino-esp32/package_esp32_index.json`,
-   then *Tools → Board → Boards Manager* → **esp32**.
+1. Install the board package once: *Tools → Board → Boards Manager* →
+   **Arduino UNO R4 Boards** (`arduino:renesas_uno`). Then install the **Servo**
+   library: *Tools → Manage Libraries* → **Servo**. The Wi-Fi library
+   (`WiFiS3`) ships with the board package.
 2. *File → Open* → `wheel-control/wheel-control.ino`.
-3. *Tools → Board* → **DOIT ESP32 DEVKIT V1**; *Tools → Upload Speed* →
-   **115200** (the default 921600 fails on this board's USB bridge — see
-   *Uploading* at the end); *Tools → Port* → the board.
+3. *Tools → Board* → **Arduino UNO R4 WiFi**; *Tools → Port* → the board.
 4. Put the chassis on blocks or leave the motor supply off, then *Upload*.
 
 From a terminal instead, with [`arduino-cli`](https://arduino.github.io/arduino-cli/):
 
 ```sh
-arduino-cli compile --fqbn esp32:esp32:esp32doit-devkit-v1 wheel-control
-arduino-cli upload  --fqbn esp32:esp32:esp32doit-devkit-v1 -p /dev/cu.usbserial-XXXX wheel-control
+arduino-cli core install arduino:renesas_uno
+arduino-cli lib install Servo
+arduino-cli compile --fqbn arduino:renesas_uno:unor4wifi wheel-control
+arduino-cli upload  --fqbn arduino:renesas_uno:unor4wifi -p /dev/cu.usbmodemXXXX wheel-control
 ```
 
 ---
@@ -61,7 +61,7 @@ flowchart LR
   D --> E["normalise<br/>to +/-512"]
   E --> F["map to PWM<br/>40 - 255"]
   F --> G["slew limit<br/>12 per loop"]
-  G --> H["driveWheel -><br/>BTS7960"]
+  G --> H["driveWheel -><br/>L298N"]
 ```
 
 1. **Deadzone.** Anything within ±60 of centre is forced to 0, and what is left
@@ -109,7 +109,7 @@ finger far off the base still yields a sensible direction. And because the rim
 is exactly `R`, full deflection is exactly ±512 — which, unlike the old ADC
 path, makes PWM 255 exactly reachable.
 
-The ESP32 clamps both values to ±512 again on arrival. A missing argument reads
+The board clamps both values to ±512 again on arrival. A missing argument reads
 as 0, never as the previous value.
 
 ### 2.2 Deadzone with rescaling
@@ -219,7 +219,9 @@ backwards and you would rather not edit the page.
 ### 2.8 Worked example
 
 Knob pushed forward-right, browser sending `x = +300`, `y = +400`. All
-arithmetic on the ESP32 is integer, truncating:
+arithmetic on the board is integer, truncating. (The table takes `INVERT_X`
+and `INVERT_Y` as 1 to keep the signs readable; with the shipped `INVERT_Y =
+-1` every `y` below is negated first, and the two wheels end up reversed.)
 
 | step | left | right |
 |---|---|---|
@@ -229,7 +231,7 @@ arithmetic on the ESP32 is integer, truncating:
 | normalise (biggest = 656) | l = 656·512/656 = **512** | r = 114·512/656 = **88** |
 | toPwm | 40 + 511·215/511 = **255** | 40 + 87·215/511 = **76** |
 | invert | ×1 → **+255** | ×-1 → **-76** |
-| hardware | left `RPWM` = 255 | right `LPWM` = 76 |
+| hardware | left `IN3` HIGH, `ENB` = 255 | right `IN2` HIGH, `ENA` = 76 |
 
 The left wheel runs flat out, the right wheel crawls: a tight right-hand turn,
 with the ratio between the wheels preserved from the mix. Reaching those values
@@ -239,87 +241,69 @@ takes ~22 loops of slew.
 
 ## 3. Wiring
 
-**Board: 30-pin ESP32 DevKit v1** (ESP32-WROOM-32, CH340 USB-serial). Its two
-header rows are silkscreened:
+**Board: Arduino UNO R4 WiFi** (Renesas RA4M1 + on-board ESP32-S3 radio, USB-C).
+Standard UNO headers, `Dn` silkscreen. Its logic is **5 V**, which the L298N's
+inputs like better than the ESP32's 3.3 V did.
 
-```
-top     VIN GND D13 D12 D14 D27 D26 D25 D33 D32 D35 D34  VN  VP  EN
-bottom  3V3 GND D15  D2  D4 D16 D17  D5 D18 D19 D21 RX0 TX0 D22 D23
-```
+Pin numbers come straight from the constants in `config.h`. Only `D3`, `D5`,
+`D6`, `D9`, `D10` and `D11` do PWM (`analogWrite`), so the two EN pins have to
+be among those; the four IN pins are plain digital. (The `image.png` in this
+folder is the older ESP32 + L298N diagram — the wiring is the same shape, but
+the pin numbers below supersede it.)
 
-![The 30-pin ESP32 DevKit v1](../docs/esp32-devkit-v1.jpeg)
+### The L298N — both wheels
 
-USB-C at the left-hand end, and the top row running to `D35 D34 VN VP EN` at the
-right — the two rows above read left to right in that orientation.
-
-**`VP` and `VN` are GPIO 36 and 39.** They are the chip's two dedicated sense
-inputs (ADC1_CH0 and ADC1_CH3) and the only pins on this board not labelled with
-their GPIO number — which is why the `IS` rows below give both. The tables use
-the silkscreen label as the thing you actually land a wire on.
-
-Pin numbers come straight from the constants in `config.h`.
-
-### Right wheel — IBT-2 / BTS7960
-
-| Driver pin | Board pin | GPIO |
+| Driver pin | Board pin | Wheel |
 |---|---|---|
-| `RPWM` | `D25` | 25 |
-| `LPWM` | `D26` | 26 |
-| `R_EN` | `D18` | 18 |
-| `L_EN` | `D19` | 19 |
-| `R_IS` | **`VP`** | 36 |
-| `L_IS` | **`VN`** | 39 |
+| `ENA` | `D9`~ | right (`OUT1`/`OUT2`) — PWM |
+| `IN1` | `D7` | right — direction |
+| `IN2` | `D8` | right — direction |
+| `IN3` | `D4` | left (`OUT3`/`OUT4`) — direction |
+| `IN4` | `D2` | left — direction |
+| `ENB` | `D10`~ | left — PWM |
 
-### Left wheel — IBT-2 / BTS7960
+Six signals plus power: the motor supply to `+12V`/`GND`, and a common ground
+between the motor supply and the UNO R4's `GND`. The L298N's inputs read the
+board's 5 V as HIGH, so the R4 drives them directly.
 
-| Driver pin | Board pin | GPIO |
-|---|---|---|
-| `RPWM` | `D32` | 32 |
-| `LPWM` | `D33` | 33 |
-| `R_EN` | `D21` | 21 |
-| `L_EN` | `D22` | 22 |
-| `R_IS` | `D34` | 34 |
-| `L_IS` | `D35` | 35 |
+**Pull the `ENA` and `ENB` jumpers off the board.** With a jumper on, that
+enable is tied HIGH and the wheel is live whatever the sketch says — the
+arm/disarm buttons, the failsafe and the boot-disarmed state all work by
+holding the enable pin at 0, so a jumpered enable defeats every one of them.
 
-Twelve signals plus power. Plus the rest of the IBT-2 hookup: driver
-`VCC`/`GND` to **3V3**/GND, motor supply to `B+`/`B-`, and a common ground
-between the motor supply and the ESP32.
+**Direction and speed are separate pins.** `IN1`/`IN2` (or `IN3`/`IN4`) pick
+which way current flows through the motor; the enable pin carries the PWM that
+sets how hard. `rotateWheel()` writes the direction only with the enable at 0,
+so a motor never sees a reversal under power.
 
-**Run the driver's `VCC` from the ESP32's `3V3` pin, not 5V.** The IBT-2's logic
-pins go through a buffer powered from `VCC`; at `VCC` = 5 V that buffer wants
-~3.5 V to see a HIGH, and the ESP32 only drives 3.3 V — marginal at best, dead
-at worst. At `VCC` = 3.3 V the threshold drops to ~2.3 V and 3.3 V logic is
-comfortably above it. `B+`/`B-` still carry the full motor supply; only the
-logic side moves to 3.3 V, and `R_EN`/`L_EN` follow `VCC` down with it.
+**The servo** sits on `D3` (`SERVO_CONTROL`): signal to `D3`, ground to `GND`,
+and its power to a supply that can take the stall current — a high-torque servo
+like the HS-5998MG can pull two to three amps when it strains, far more than the
+board's 5V pin will give, so power it from the motor supply (or its own 5–6 V
+rail) with a common ground, never from the R4. `servo.ino`
+drives it through the Arduino **Servo** library (the R4 has no LEDC peripheral).
 
-**`R_EN` and `L_EN` are driven, not strapped.** Both halves of a bridge move
-together, and both start LOW, so the drivers are gated off before anything else
-in `setup()` runs. `enableWheel()` is the only function that touches them.
+**Still free on this board:** the analog pins `A0`–`A5`, `D5`~, `D6`~, `D11`~,
+`D12`, and `D0`/`D1` if you do not use `Serial1` for a wired voice module. `D13`
+is the on-board LED.
 
-**`R_IS` and `L_IS` are `INPUT`, never driven.** They are the BTS7960's own
-current-sense *outputs* — configuring the ESP32 as an output on the same net
-puts two drivers on one wire. The sketch does not read them yet; they sit on
-GPIO 34–39, which is input-only and on ADC1, so `analogRead()` on them would
-keep working with Wi-Fi up if you want current sensing later.
+**Before the L298N** each wheel had its own IBT-2 (BTS7960) bridge on twelve
+signals; and before this board the whole sketch ran on a 30-pin ESP32 DevKit v1.
+Both are kept inside `#if 0` so they compile to nothing: the IBT-2 driver in
+`legacy.ino`, the ESP32 build in `legacy-esp32.ino`. Each tab says how to put it
+back.
 
-**Still free on this board:** `D27`, `D23`, `D17`, `D16`, `D14`, `D13`, `D12`,
-`D5`, `D4`, `D15`, `D2`. Avoid `D15`/`D2` (strapping) and `RX0`/`TX0` (the USB
-serial console) unless you have no choice. `D27` held the old thumbstick's `SW`;
-`D34`/`D35` held `VRx`/`VRy` and the `IS` lines now use them.
+### UNO R4 pin constraints
 
-### ESP32 pin constraints
+`analogWrite()` only works on the PWM pins, so the two EN pins are the real
+constraint if you move things:
 
-Any output-capable GPIO can do PWM here — `analogWrite()` on arduino-esp32 ≥ 2.0
-is backed by the LEDC peripheral (8-bit, ~1 kHz), so there is no "PWM pin" list
-to respect the way there is on an ATmega. The constraints that *do* bite if you
-move the four PWM pins:
-
-- **GPIO 34–39 are input-only.** They cannot drive a driver input at all.
-- **Avoid GPIO 0, 2, 12 and 15** (strapping pins — a driver holding one at the
-  wrong level at reset changes the boot mode), **6–11** (flash), and **1/3**
-  (UART0, the serial monitor).
-- **Anything else is fair game.** GPIO 25/26 double as the DACs and 32/33 as
-  ADC1 inputs, but nothing here uses either function.
+- **PWM (EN pins) must be one of `D3`, `D5`, `D6`, `D9`, `D10`, `D11`.** The
+  four IN pins can be any free digital pin.
+- **`D0`/`D1` are `Serial1`** (a wired voice module — see `VOICE_LINK` in
+  `config.h`), and **`D13` is the on-board LED** — avoid both unless you mean it.
+- **The Servo library and `analogWrite()` share the RA4M1's GP timers.** Keep
+  the servo pin off the EN pins (it is, on `D3`) so they cannot contend.
 
 ---
 
@@ -327,7 +311,7 @@ move the four PWM pins:
 
 ### Connecting
 
-The ESP32 runs as an **access point** — it makes its own network rather than
+The board runs as an **access point** — it makes its own network rather than
 joining yours. Nothing else is needed: no router, no app, no filesystem upload.
 
 1. Power the board.
@@ -347,7 +331,7 @@ const char *AP_SSID = "mascot-robot";
 const char *AP_PASS = "mascotbot";
 ```
 
-WPA2 needs **8 characters or more**. With a shorter one `softAP()` quietly
+WPA2 needs **8 characters or more**. With a shorter one `beginAP()` quietly
 brings the network up with no password at all, so anyone in range can drive the
 robot. It does not warn you.
 
@@ -358,16 +342,22 @@ covers finger, stylus and mouse. `setPointerCapture()` keeps the drag alive when
 your finger leaves the base, and `touch-action: none` stops the browser from
 scrolling or pinch-zooming the page out from under you.
 
-Under the knob, three readouts:
+Under the knob, a **servo** slider, 0–180°. Dragging it sends `/servo` with the
+latest angle, one request at a time, and the readout beside it follows your
+finger at once. When the board's reply carries a different angle — another
+phone moved it — the slider follows the board, except while your finger is on
+it or an angle of yours is still on its way.
+
+Under the slider, three readouts:
 
 | Readout | Meaning |
 |---|---|
 | `link` | green `linked` once a request succeeds, red `no link` the moment one fails or exceeds its 250 ms timeout |
 | `axes` | what the knob is asking for, -512 → +512 |
-| `wheels` | the signed PWM actually on the pins, read back from the ESP32's reply |
+| `wheels` | the signed PWM actually on the pins, read back from the board's reply |
 
 Below the readouts, **LEFT** and **RIGHT** arm each wheel independently — green
-`ON`, grey `OFF`. They drive that wheel's two `EN` pins, so a disarmed wheel is
+`ON`, grey `OFF`. They gate that wheel's enable pin, so a disarmed wheel is
 dead in hardware, not just commanded to zero. Both start `OFF` after every boot.
 
 Plus a **STOP** button, which centres the knob and calls `/stop`. STOP does not
@@ -383,12 +373,14 @@ disarm; it zeroes the axes and leaves the enables as you set them.
 | `GET /stop` | status | zeroes both axes immediately, and cancels a running move |
 | `GET /move?name=<move>&ms=<hold>&speed=<0..100>` | status, or 400 | starts a named move on the board's own clock — see *Named moves* below |
 | `GET /moves` | the move names, comma-separated | what `/move` accepts, so a client need not hard-code the list |
+| `GET /servo?a=<0..180>` | status, or 400 | moves the servo to that angle, clamped. Independent of the wheels: it neither feeds the failsafe nor counts as stick input |
+| `GET /face?name=<expr>` | status, or 400 | runs the body-language gesture for an expression (`faces.ino`). A curl/WiFi convenience; the tablet drives faces over USB serial instead (below) |
 | anything else | 404 `not found` | |
 
 Every control route answers with the same one-line **status**:
 
 ```
-<leftSpeed>,<rightSpeed>,<leftEnabled>,<rightEnabled>
+<leftSpeed>,<rightSpeed>,<leftEnabled>,<rightEnabled>,<servoDeg>
 ```
 
 e.g. `254,-76,1,0`. The board is the authority on all four, so the readouts and
@@ -407,6 +399,21 @@ curl "http://192.168.4.1/enable?l=0&r=0"    # disarm
 
 Remember the failsafe: a single `curl` drives for 500 ms and then cuts out. To
 keep moving you have to keep sending — or ask for a named move.
+
+### Faces
+
+The tablet's face app tells the board which expression ACMO is showing, and
+the board answers with a little body language — a small nudge and/or a servo
+gesture. The app is wired to the board over the **USB cable** and writes one
+line per expression change to the board's `Serial`, `face:happy`,
+`face:angry` and so on; `serviceVoice()` reads it and `runFace()` (in
+`faces.ino`) runs the gesture. `GET /face?name=<expr>` does the same over
+WiFi, kept as a `curl` test path. The gestures: *sad/happy/passionate* nudge
+a tiny bit (back, forward, forward); *angry/excited* nudge back and shake the
+head (servo 85 → 95 → 90); *annoyed* swings the servo to 120; *idle/surprised*
+rest at 90. The nudges go through `startMove()`, so **nothing moves until the
+wheels are armed** — until then only the servo gestures show. Tune the sizes
+with the `FACE_*` constants in `config.h`.
 
 ### Named moves
 
@@ -486,28 +493,21 @@ not consume one of the three.
 
 ### Why polling and not WebSockets
 
-`WebServer.h` ships with the ESP32 core; a WebSocket server does not. Polling
-over plain HTTP keeps the sketch on stock libraries, so it compiles on a fresh
-install with nothing to add. That is the whole reason, and it has a real cost
-worth knowing about.
+The UNO R4's Wi-Fi library (`WiFiS3`) has no WebServer and no WebSocket server,
+so the sketch hand-rolls a tiny HTTP server, `MiniServer` in `mini-server.h`,
+over `WiFiServer`/`WiFiClient`. Plain-HTTP polling keeps that server small: it
+parses one GET at a time and needs no framing or persistent-connection logic.
 
-The bundled `WebServer` handles **one connection at a time**, and it does not
-keep them alive — the keep-alive branch in `handleClient()` is commented out in
-the core (a long-standing Chrome workaround, espressif/arduino-esp32#3652). So
-every request opens and closes its own TCP connection: at 20 Hz that is 20
-connections a second cycling through a small pool of lwIP control blocks. It
-drives fine; it is simply not free, and it is the first thing that will degrade
-over a long session.
+`MiniServer` handles **one connection at a time** and closes each after replying
+(`Connection: close`), so every request is its own short TCP connection — at
+20 Hz, 20 a second. It drives fine; it is simply not free. Its request read is
+**time-bounded** (150 ms): a client that opens a connection and then sends
+nothing — browsers do this speculatively — is dropped rather than allowed to
+stall the control loop, so a half-open connection cannot freeze steering. The
+failsafe remains the backstop for a genuinely dropped link.
 
-One stall is worth knowing about too. If something opens a connection and then
-sends no request on it — browsers do this speculatively — `handleClient()` holds
-that single slot for up to `HTTP_MAX_DATA_WAIT` (5 s in the core) and serves
-nobody else meanwhile. The failsafe cuts the motors well before that, so the
-symptom is a freeze, not a runaway.
-
-If either bites, in order of effort: raise `TICK_MS` in the page to 100 — 10 Hz
-is still perfectly drivable — or install a WebSocket library and replace the
-polling with one persistent connection.
+If throughput ever bites, raise `TICK_MS` in the page to 100 — 10 Hz is still
+perfectly drivable.
 
 ---
 
@@ -519,13 +519,19 @@ The sketch is one folder, and the Arduino IDE shows each file in it as a tab:
 
 | File | Holds |
 |---|---|
-| `wheel-control.ino` | The globals every tab shares, `setup()`, `loop()`, `failsafe()`, `report()` |
+| `wheel-control.ino` | The globals every tab shares, `setup()`, `bootDance()`, `loop()`, `failsafe()`, `report()` |
 | `config.h` | Pins, tuning constants, Wi-Fi credentials, safety limits — **the only file you should need to edit** |
+| `mini-server.h` | `MiniServer`, the tiny WebServer stand-in over `WiFiS3` (the UNO R4 has no WebServer class) |
 | `mixing.ino` | The math of section 2: `applyDeadzone()`, `arcadeMix()`, `toPwm()`, `slew()`. Pure functions |
 | `moves.ino` | The `MOVES[]` table and the functions that start, time and cancel a move |
+| `faces.ino` | A gesture per app expression (`faceHappy()`, `faceAngry()`, …) and the `/face` route; `runFace()` dispatches by name |
+| `voice-activated.ino` | `spin()`, `dance()`, `serviceVoice()` and the routine guards |
+| `voice-activated.h` | The contract for a routine: what it is, what blocks, what stops it. Included only by `voice-activated.ino` |
 | `web.ino` | `startAccessPoint()`, `startServer()`, every route handler, `statusBody()` |
 | `page.h` | `INDEX_HTML`, the control page. Included only by `web.ino` |
-| `wheels.ino` | Everything that touches a pin: `setup*Wheel()`, `enableWheel()`, `driveWheel()`, `rotateWheel()`, `stopWheels()` |
+| `servo.ino` | The servo on `SERVO_CONTROL`: `setupServo()`, `setServo()` |
+| `wheels.ino` | Everything that touches a wheel pin, for the L298N: `setup*Wheel()`, `enableWheel()`, `driveWheel()`, `rotateWheel()`, `stopWheels()` |
+| `legacy.ino` | The IBT-2 (BTS7960) driver and pins from before the L298N, inside `#if 0`. Compiles to nothing |
 
 There is no build system and nothing to configure: every `.ino` in the folder
 is compiled **as one file** — the one named after the folder first, the rest
@@ -552,22 +558,29 @@ once, from the main file.
 
 Runs once, in this order, and the order is deliberate:
 
-1. `Serial.begin(115200)` — the ESP32 boot ROM's own baud, so the monitor is
-   not garbage through the boot messages.
-2. `setupRightWheel()` / `setupLeftWheel()` — PWM and `EN` pins to `OUTPUT`
-   with **every `EN` LOW**, and the four `IS` pins to `INPUT`. The bridges are
-   gated off here, before anything else can happen.
-3. `stopWheels()` — all four PWM pins to 0, **before the radio powers up**, so
-   the Wi-Fi start-up current surge cannot find a driver input mid-write.
-4. `enableWheel('R', START_ENABLED)` / `enableWheel('L', …)` — `EN` is already
-   LOW from step 2; this makes the disarmed state explicit and sets the flags
-   the page reads back.
-5. `startAccessPoint()` — `WIFI_AP` mode, `softAP()`, print the IP.
-6. `startServer()` — register the routes, `enableDelay(false)`, `begin()`.
-7. Ready message.
-
-`enableDelay(false)` matters: by default `handleClient()` sleeps 1 ms on an idle
-call, which would jitter the control loop that shares the same task.
+1. `Serial.begin(115200)` — the baud the Serial Monitor and the voice link
+   (`VOICE_LINK`) both expect.
+2. `setupRightWheel()` / `setupLeftWheel()` — direction pins to `OUTPUT` and
+   LOW, enable pins to `OUTPUT` with **0 duty**. The motors coast here, before
+   anything else can happen.
+3. `stopWheels()` — both enables to 0 again and directions cleared, **before
+   the radio powers up**, so the Wi-Fi start-up current surge cannot find a
+   driver input mid-write.
+4. `enableWheel('R', START_ENABLED)` / `enableWheel('L', …)` — the enables are
+   already at 0 from step 2; this makes the disarmed state explicit and sets
+   the flags the page reads back.
+5. `setupServo()` — attach `SERVO_CONTROL` (`D3`) through the Servo library and
+   go to `SERVO_START_DEG`. Kept off the wheel EN pins so the shared RA4M1
+   timers do not contend. *(Currently commented out in `setup()`.)*
+6. `startAccessPoint()` — `WiFi.config(192.168.4.1)`, then `WiFi.beginAP()`,
+   print the IP.
+7. `startServer()` — register the routes and `begin()` listening.
+8. `bootDance()` *(currently commented out in `setup()`)* — arm both wheels, run `dance()` from `voice-activated.ino`,
+   then set both enables back to `START_ENABLED`. This is the first thing the
+   robot visibly does after a flash, and after every reset. It comes after the
+   server is up because the routine pumps `handleClient()` while it blocks and
+   the page STOP button is the only HTTP route that can end it.
+9. Ready message.
 
 ### `loop()`
 
@@ -623,7 +636,16 @@ All in `config.h`.
 | `LEFT_INVERT` | 1 | Flip to -1 if the left wheel runs backwards. |
 | `RIGHT_INVERT` | -1 | Already -1 for the mirrored motor mounting. |
 | `INVERT_X` | 1 | Flip to -1 if steering is reversed. |
-| `INVERT_Y` | 1 | Flip to -1 if throttle is reversed. |
+| `INVERT_Y` | -1 | Flipped with the move to the L298N: on that wiring, forward drove backward. Set 1 if yours goes the other way. |
+| `SERVO_MIN_US` | 500 | Pulse width at 0°. Raise toward 1000 if the servo buzzes or strains at that end. |
+| `SERVO_MAX_US` | 2400 | Pulse width at 180°. Lower toward 2000 if it strains at that end. |
+| `SERVO_START_DEG` | 90 | Where the servo goes at boot. |
+| `FACE_NUDGE_MS` | 300 | Length of a face-triggered nudge — "a tiny bit". |
+| `FACE_NUDGE_SPEED` | 35 | Speed of the happy/passionate/angry/excited nudge, % of full. |
+| `FACE_SAD_SPEED` | 20 | Sad backs off more gently. |
+| `FACE_ANNOYED_SERVO` | 120 | Where *annoyed* swings the servo (from 90). |
+| `FACE_SHAKE_LO` / `FACE_SHAKE_HI` | 85 / 95 | The angry/excited head-shake endpoints (85 → 95 → 90). |
+| `FACE_SHAKE_MS` | 120 | Dwell at each shake position. |
 
 ## 7. Globals
 
@@ -631,13 +653,13 @@ In `wheel-control.ino` unless the row says otherwise.
 
 | Name | Type | Meaning |
 |---|---|---|
-| `server` | `WebServer` | The HTTP server, on port 80. |
+| `server` | `MiniServer` | The hand-rolled HTTP server (mini-server.h), on port 80. |
 | `INDEX_HTML` | `const char[] PROGMEM` | The whole control page. In `page.h`. |
 | `webX`, `webY` | `int` | Last commanded axes, -512 → +512. Written by `handleDrive()`. |
 | `lastCommand` | `unsigned long` | `millis()` of the last `/drive`, `/stop` or `/move` — or of the last control step while a move runs. The failsafe measures against this. |
 | `lastStep` | `unsigned long` | `millis()` of the last control step, for the `LOOP_MS` gate. |
 | `leftSpeed`, `rightSpeed` | `int` | Signed PWM currently applied, -255 → 255. Persist across loops — slew needs the previous value. |
-| `leftEnabled`, `rightEnabled` | `bool` | Whether each bridge's `EN` pins are HIGH. Written only by `enableWheel()`. |
+| `leftEnabled`, `rightEnabled` | `bool` | Whether each wheel's enable pin may carry a duty cycle. Written only by `enableWheel()`; read by `rotateWheel()`, which writes 0 to a disarmed wheel whatever it is asked. |
 | `lastPrint` | `unsigned long` | `millis()` of the last serial report, for rate limiting. |
 | `MOVES`, `MOVE_COUNT` | `const Move[]`, `const int` | The move table — name, x, y — and its length. In `moves.ino`. |
 | `moveUntil` | `unsigned long` | `millis()` at which the running move stops holding the stick; 0 when none is running. In `moves.ino`, touched only by its own functions. |
@@ -648,16 +670,23 @@ In `wheel-control.ino` unless the row says otherwise.
 |---|---|---|
 | `main` | `setup()` | Boot sequence, section 5. |
 | `main` | `loop()` | HTTP service plus one gated control step, section 5. |
-| `web` | `startAccessPoint()` | `WIFI_AP` mode, `softAP(AP_SSID, AP_PASS)`, prints the IP. Says so on serial and returns if the AP fails to come up, rather than printing `0.0.0.0`. |
-| `web` | `startServer()` | Registers `/`, `/drive`, `/enable`, `/stop`, `/move`, `/moves` and the 404, disables `handleClient()`'s idle delay, starts listening. |
-| `web` | `statusBody()` | Builds the `L,R,leftEnabled,rightEnabled` line every control route replies with. |
-| `wheels` | `enableWheel(char wheel, bool on)` | The only function that touches `EN`. Zeroes that wheel's PWM and stored speed **first**, then moves both `EN` pins together, so neither edge hands the driver a live duty cycle. |
-| `web` | `handleRoot()` | `send_P()` of `INDEX_HTML` straight out of flash. |
+| `main` | `bootDance()` | Arms both wheels, runs `dance()`, then sets both enables back to `START_ENABLED`. Called last in `setup()`, section 5. |
+| `web` | `startAccessPoint()` | `WiFi.config(192.168.4.1)` then `WiFi.beginAP(AP_SSID, AP_PASS)`, prints the IP. Says so on serial and returns if the module is missing or the AP fails to come up. |
+| `web` | `startServer()` | Registers `/`, `/drive`, `/enable`, `/stop`, `/move`, `/moves`, `/servo` and the 404, then starts listening. |
+| `web` | `statusBody()` | Builds the `L,R,leftEnabled,rightEnabled,servoDeg` line every control route replies with. |
+| `wheels` | `enableWheel(char wheel, bool on)` | The only function that arms or disarms a wheel. Brings its enable pin to 0 and zeroes its stored speed on both edges, so re-arming cannot resume at whatever it was doing. |
+| `web` | `handleRoot()` | `send_P()` streams `INDEX_HTML` to the client in chunks. |
 | `web` | `handleDrive()` | Clamps `x` and `y` to ±512 into `webX`/`webY`, stamps `lastCommand`, replies with the status line. A missing argument reads as 0. Anything other than `0,0` cancels a running move; `0,0` — the page's idle heartbeat — leaves it alone and does not touch the stick. |
 | `web` | `handleEnable()` | Arms/disarms from `l` and `r` arguments. An absent argument leaves that wheel alone, so one button cannot disarm the other by omission. |
 | `web` | `handleStop()` | Cancels any move, zeroes both axes and stamps `lastCommand`. Does not change the enables. |
 | `web` | `handleMove()` | Reads `name`, `ms` and `speed`, hands them to `startMove()`, replies with the status line — or 400 and the list of names if the move does not exist. |
 | `web` | `handleMoves()` | Replies with `listMoves()`. |
+| `web` | `handleServo()` | Hands `a` to `setServo()` and replies with the status line — or 400 if `a` is missing. |
+| `faces` | `runFace(name)` | Runs the gesture for an expression name; `false` for an unknown one. Called by both the `/face` route and the serial `face:` command. |
+| `faces` | `handleFace()` | The `/face?name=` route: `runFace()` then the status line, or 400. |
+| `faces` | `faceHappy()` … | One per app expression: a tiny nudge and/or servo gesture. Movements go through `startMove()`, so they respect the wheel arm gate and are skipped while a move is already running. |
+| `servo` | `setupServo()` | Attaches `SERVO_CONTROL` through the Servo library (pulse range `SERVO_MIN_US`–`SERVO_MAX_US`), then `setServo(SERVO_START_DEG)`. Says so on serial if the attach fails. |
+| `servo` | `setServo(int deg)` | The only function that writes the servo pin. Clamps to 0–180, stores `servoDeg`, maps the angle to a `SERVO_MIN_US`–`SERVO_MAX_US` pulse and writes it with `writeMicroseconds()`. |
 | `web` | `handleNotFound()` | 404. |
 | `main` | `failsafe()` | Zeroes the axes **and the applied speeds**, then `stopWheels()` — no slew ramp. Returns early when already stopped, so it neither re-writes the pins nor spams serial. |
 | `mixing` | `applyDeadzone(int v)` | Axis value → 0 inside the deadzone, otherwise rescaled to the full ±512 range. Section 2.2. |
@@ -672,25 +701,27 @@ In `wheel-control.ino` unless the row says otherwise.
 | `moves` | `moveRunning()` | Whether `moveUntil` is set. |
 | `moves` | `listMoves()` | The names in `MOVES[]`, comma-separated. |
 | `wheels` | `driveWheel(char wheel, int speed)` | Splits a signed speed into a direction (+1/-1/0) and a magnitude, then calls `rotateWheel()`. |
-| `wheels` | `rotateWheel(char wheel, int dir, int speed)` | The only function that touches the PWM pins. Picks the wheel's pin pair, clamps speed to 0–255, and writes them. |
-| `wheels` | `stopWheels()` | `rotateWheel(..., 0, 0)` on both wheels — all four PWM pins to 0. Does not touch `EN`; that is `enableWheel()`'s job. |
-| `wheels` | `setupLeftWheel()`, `setupRightWheel()` | One driver's pins: PWM and `EN` to `OUTPUT` with `EN` LOW, `IS` to `INPUT`. |
+| `wheels` | `rotateWheel(char wheel, int dir, int speed)` | The only function that writes a wheel pin. Enable to 0, then the two direction pins for `dir`, then the enable back up to `speed` (0–255) — and 0 whatever was asked if the wheel is disarmed. |
+| `wheels` | `stopWheels()` | `rotateWheel(..., 0, 0)` on both wheels — both enables to 0, both motors coasting. Does not change the arm flags; that is `enableWheel()`'s job. |
+| `wheels` | `setupLeftWheel()`, `setupRightWheel()` | One wheel's pins: direction pins to `OUTPUT` and LOW, enable to `OUTPUT` at 0 duty. |
 
 ### On `rotateWheel()`
 
-A BTS7960 must never see both `RPWM` and `LPWM` driven at once — that is
-shoot-through, and it is how the driver dies. The write order enforces it:
+An L298N cannot shoot through the way a BTS7960 can — its logic never turns
+both sides of a bridge on at once — but a motor reversed under full power is
+still a current spike and a jolt. The write order avoids it:
 
 ```c
-if (dir >= 0) analogWrite(lPin, 0);     // clear the idle half first
-if (dir <= 0) analogWrite(rPin, 0);
-if (dir ==  1) analogWrite(rPin, speed);  // only then raise the active one
-if (dir == -1) analogWrite(lPin, speed);
+analogWrite(enPin, 0);                        // duty off
+digitalWrite(aPin, (dir ==  1) ? HIGH : LOW); // then the direction
+digitalWrite(bPin, (dir == -1) ? HIGH : LOW);
+analogWrite(enPin, speed);                    // then the duty back
 ```
 
-The pin coming down is always written before the pin going up, and `dir == 0`
-takes both branches, which zeroes both pins. Keep that ordering if you touch
-this function.
+`dir == 0` leaves both direction pins LOW, so the motor coasts. And `speed` is
+forced to 0 when the wheel is disarmed, whatever the caller asked: on this
+driver the enable pin *is* the arm switch, so the check lives where the pin is
+written. Keep both if you touch this function.
 
 ---
 
@@ -757,33 +788,38 @@ protection while a move runs.
 
 ### The per-wheel enable
 
-Each wheel's two `EN` pins are driven together by `enableWheel()` and start LOW,
-so the bridges are gated off in hardware before `setup()` does anything else. A
-disarmed wheel is not "commanded to zero" — the driver itself is off, and no
-value on `RPWM`/`LPWM` can move it.
+Each wheel's enable pin (`ENA`, `ENB`) starts at 0 duty, so the bridges are
+gated off in hardware before `setup()` does anything else. A disarmed wheel is
+not "commanded to zero" — `rotateWheel()` refuses to put a duty cycle on its
+enable pin, and with the enable at 0 no value on the `IN` pins can move it.
 
 `START_ENABLED` is `false`, so a reset or a fresh upload lands disarmed every
 time. That is the behaviour worth keeping: the old build went live the instant
-it booted.
+it booted. The boot dance is the one exception: `bootDance()` in `setup()`
+arms both wheels for the length of `dance()` and puts them back to
+`START_ENABLED` when it ends, so the robot drives itself for about five seconds
+on every boot, and then lands disarmed as before. Keep the chassis on blocks or
+the motor supply off when uploading — the knob cannot interrupt a routine.
 
-Arming order matters and the code enforces it. `enableWheel()` zeroes the PWM
-and the stored speed *before* moving `EN`, on both edges, so arming cannot
-resume at whatever the wheel was last doing and disarming cannot strand a live
-duty cycle on a bridge that is about to come back.
+Arming order matters and the code enforces it. `enableWheel()` zeroes the
+enable pin and the stored speed on both edges, so arming cannot resume at
+whatever the wheel was last doing and disarming cannot strand a live duty cycle
+on the pin.
 
 ### The window software cannot reach
 
-Between power-on and the first line of `setup()`, the ESP32's GPIOs float or are
-pulled by the bootloader — and that now includes the `EN` pins. If the drivers
-have power during a reset or a flash, a floating `EN` can enable a bridge before
-any code runs.
+Between power-on and the first line of `setup()`, the board's pins float or are
+pulled by the bootloader — and that includes `ENA` and `ENB`. If the driver
+has power during a reset or a flash, a floating enable can turn a bridge on
+before any code runs.
 
-**Fit ~10 kΩ pulldowns on the four `EN` lines.** That is the one hardware change
-that closes this, and it is more useful than pulling down `RPWM`/`LPWM`: `EN`
-low holds the bridge off regardless of what the PWM pins are doing. Without them
-the enables are undefined for the first few hundred milliseconds of every boot.
+**Fit ~10 kΩ pulldowns on `ENA` and `ENB`.** That is the one hardware change
+that closes this, and it is more useful than pulling down the `IN` pins: an
+enable held low keeps the bridge off regardless of what the direction pins are
+doing. Without them the enables are undefined for the first few hundred
+milliseconds of every boot.
 
-`WiFi.softAP()` also draws a large current spike; `stopWheels()` and both
+`WiFi.beginAP()` also draws a current spike; `stopWheels()` and both
 `enableWheel()` calls deliberately run before it, so every driver input is at a
 defined level before the radio starts.
 
@@ -808,7 +844,7 @@ up with no password and no warning.
 | `link` goes red while driving | Out of range, phone slept, or the tab lost focus. The robot has already stopped. |
 | `link` flickers red over a long session | Per-request TCP churn — see section 4. Raise `TICK_MS` to 100. |
 | Android keeps offering to switch networks | The AP has no internet, so Android wants to leave it. Tell it to stay connected, or Android may drop you mid-drive. iOS just shows "No Internet Connection" and stays. |
-| Serial says `softAP() failed` | The radio did not come up at all. Power-cycle; check the board is not brownout-resetting off the motor supply. |
+| Serial says `beginAP() failed` or `no Wi-Fi module` | The radio did not come up. Power-cycle; check the board is not brownout-resetting off the motor supply. `no Wi-Fi module` can also mean the on-board ESP32-S3 Wi-Fi firmware needs updating (Arduino IDE → *Tools → Firmware Updater*). |
 | Robot stutters — drives, stops, drives | Link is dropping past 500 ms. Move closer; raise `COMMAND_TIMEOUT_MS` only if you understand section 9. |
 | Robot keeps moving after you let go | Should be impossible — release sends three zeros and the failsafe is the backstop. Check serial for `link lost -- motors cut`. |
 | Push the knob and one wheel does nothing | That wheel is disarmed. Tap `LEFT`/`RIGHT` until it reads `ON`. |
@@ -822,8 +858,8 @@ up with no password and no warning.
 | One wheel runs backwards | Flip that wheel's `*_INVERT`. |
 | Both wheels backwards | Flip `INVERT_Y`. |
 | Steering reversed | Flip `INVERT_X`. |
-| Nothing moves at all, or only sometimes | 3.3 V logic into a 5 V-powered driver — see section 3. |
-| Only full speed or nothing | Check the PWM pins are output-capable GPIOs (not 34–39) — see section 3. |
+| Nothing moves at all, or only sometimes | Check the common ground between the motor supply and the board — see section 3. (The R4's 5 V logic drives the L298N cleanly, so this is no longer a 3.3 V level problem.) |
+| Only full speed or nothing | Check each EN pin is a PWM pin (`D3/5/6/9/10/11`) — see section 3. |
 | Too twitchy | Lower `SLEW`. |
 | Too sluggish to respond | Raise `SLEW`. |
 | Too fast overall | Lower `MAX_PWM`. |
@@ -836,10 +872,10 @@ up with no password and no warning.
 
 | Symptom | Fix |
 |---|---|
-| `Unable to verify flash chip connection` right after `Changing baud rate to 921600` | **Tools → Upload Speed → 115200.** The chip and flash are fine; the USB-serial bridge cannot hold 921600. This is the default for this board, so it bites on a fresh install. |
-| Upload fails, board keeps running the *previous* sketch | Same thing — a failed upload leaves the old firmware in place. Press EN and read the first serial line to see what is actually on the chip: `access point "mascot-robot" up…` is this sketch, anything else is not. |
-| `Serial port busy` / flaky uploads | Close the Serial Monitor first. The IDE usually releases the port on its own, but a stuck `serial-monitor` helper will hold it. |
-| Fails at any speed | Try another USB cable (many are charge-only), plug straight into the machine rather than a hub, and unplug the drivers' `VCC` while flashing — peripherals loading 3V3 cause the same error. |
+| Board not found / no port | The UNO R4 uploads over native USB (no CH340 bridge). If no port shows, double-tap the RESET button to force the bootloader, then select the port that appears and upload. |
+| Upload fails, board keeps running the *previous* sketch | A failed upload leaves the old firmware in place. Press RESET and read the first serial line: `access point "mascot-robot" up…` is this sketch, anything else is not. |
+| `Serial port busy` / flaky uploads | Close the Serial Monitor first. A stuck `serial-monitor` helper can hold the port. |
+| Fails repeatedly | Try another USB-C cable (many are charge-only) and plug straight into the machine rather than a hub. |
 
 After a successful upload the sketch prints two lines and then goes **quiet**:
 

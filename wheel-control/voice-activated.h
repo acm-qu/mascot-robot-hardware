@@ -31,6 +31,13 @@
 //   dance   the six-step routine below
 //   stop    cancel whatever is running and centre the stick
 //
+// plus one prefixed command:
+//
+//   face:<expr>   run the gesture for a facial expression (faces.ino) -- this
+//                 is how the tablet, wired to the board over USB, drives ACMO's
+//                 body language: it writes "face:happy", "face:angry" and so on
+//                 as its on-screen expression changes. Not a spoken word.
+//
 // Anything else is ignored, with a line on serial saying so. Lines longer than
 // 32 characters are dropped whole rather than truncated -- truncating would
 // let "dancefloor" arrive as "dance".

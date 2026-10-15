@@ -85,27 +85,27 @@ bool stickActive() {
 // than arming anything itself.
 bool beginRoutine(const char *name) {
   if (inRoutine) {
-    Serial.printf("routine: %s refused -- one is already running\n", name);
+    logf("routine: %s refused -- one is already running\n", name);
     return false;
   }
   if (stickActive()) {
-    Serial.printf("routine: %s refused -- the joystick has the wheels\n", name);
+    logf("routine: %s refused -- the joystick has the wheels\n", name);
     return false;
   }
   if (!leftEnabled || !rightEnabled) {
-    Serial.printf("routine: %s refused -- arm both wheels first\n", name);
+    logf("routine: %s refused -- arm both wheels first\n", name);
     return false;
   }
 
   inRoutine = true;
-  Serial.printf("routine: %s\n", name);
+  logf("routine: %s\n", name);
   return true;
 }
 
 void endRoutine(const char *name, bool finished) {
   inRoutine = false;
   if (!finished) {
-    Serial.printf("routine: %s cut short\n", name);
+    logf("routine: %s cut short\n", name);
   }
 }
 
@@ -131,7 +131,7 @@ void endRoutine(const char *name, bool finished) {
 // routine in both cases.
 bool runMove(const char *name, unsigned long ms, int speed) {
   if (!startMove(String(name), (long)ms, speed)) {
-    Serial.printf("routine: no move named \"%s\"\n", name);
+    logf("routine: no move named \"%s\"\n", name);
     return false;
   }
 
@@ -246,6 +246,19 @@ const unsigned int VOICE_MAX_LEN = 32;
 // which is where beginRoutine() applies the joystick priority and prints the
 // reason when it bites.
 void runVoiceCommand(const String &command) {
+  // "face:<expr>" is the tablet telling the board which face ACMO is showing,
+  // over the USB serial link. It is not a spoken word -- it is how the app
+  // drives the gestures in faces.ino -- but it arrives on the same line reader,
+  // so it is dispatched here. The name is already trimmed and lower-cased.
+  if (command.startsWith("face:")) {
+    String name = command.substring(5);
+    name.trim();
+    if (!runFace(name)) {
+      logf("face: ignored \"%s\"\n", name.c_str());
+    }
+    return;
+  }
+
   if (command == "stop") {
     cancelMove();
     webX = 0;
@@ -265,7 +278,7 @@ void runVoiceCommand(const String &command) {
     return;
   }
 
-  Serial.printf("voice: ignored \"%s\" -- say spin, dance or stop\n", command.c_str());
+  logf("voice: ignored \"%s\" -- say spin, dance or stop\n", command.c_str());
 }
 
 // Read whatever has arrived and act on any complete line in it. Never blocks
@@ -278,8 +291,8 @@ void runVoiceCommand(const String &command) {
 // pumps this function again from inside runMove(), and it has to start from
 // an empty line rather than from half of the one that launched it.
 void serviceVoice() {
-  while (Serial.available()) {
-    char c = (char)Serial.read();
+  while (VOICE_LINK.available()) {
+    char c = (char)VOICE_LINK.read();
 
     if (c == '\r') {
       continue;               // CR LF or bare LF, both end a line

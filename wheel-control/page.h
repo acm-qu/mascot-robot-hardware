@@ -84,6 +84,28 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
   }
   #knob.live { transition: none; }
 
+  #servo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: min(76vw, 310px);
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px;
+  }
+  #servo .k { color: var(--dim); }
+  #servo .v { min-width: 4ch; text-align: right; white-space: pre; }
+  #servo input {
+    flex: 1;
+    margin: 0;
+    height: 28px;
+    accent-color: #7aa2ff;
+    touch-action: none;
+  }
+
   #stats {
     width: min(76vw, 310px);
     display: grid;
@@ -145,6 +167,12 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
 <div id="base"><div id="knob"></div></div>
 
+<div id="servo">
+  <span class="k">servo</span>
+  <input id="servoSlider" type="range" min="0" max="180" step="1" value="90">
+  <span class="v" id="servoDeg">90°</span>
+</div>
+
 <div id="stats">
   <span class="k">link</span><span class="v bad" id="link">no link</span>
   <span class="k">axes</span><span class="v" id="axes">x 0   y 0</span>
@@ -167,6 +195,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
   var wheelsEl = document.getElementById('wheels');
   var enLEl = document.getElementById('enL');
   var enREl = document.getElementById('enR');
+  var servoEl = document.getElementById('servoSlider');
+  var servoDegEl = document.getElementById('servoDeg');
 
   var TICK_MS = 50;        // how often a held knob is sampled and sent (20 Hz)
   var IDLE_TICKS = 4;      // heartbeat every 4th tick when not driving (5 Hz)
@@ -180,6 +210,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
   var enabled = { l: false, r: false };
   var pendingEnable = null;   // an arm/disarm waiting for its turn on the wire
+  var pendingServo = null;    // an angle waiting for its turn on the wire
+  var servoHeld = false;      // finger on the slider: the board's echo must not yank it
 
   function place(dx, dy) {
     knob.style.transform = 'translate(-50%, -50%) translate(' + dx + 'px, ' + dy + 'px)';
@@ -262,7 +294,21 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
   enLEl.addEventListener('click', function () { toggle('l'); });
   enREl.addEventListener('click', function () { toggle('r'); });
 
-  // "<L>,<R>,<leftEnabled>,<rightEnabled>" from any route.
+  // The slider fires input far faster than the wire can take; the tick sends
+  // the latest angle, one request at a time, and the readout follows at once.
+  function renderServo(deg) {
+    servoDegEl.textContent = deg + '\u00b0';
+  }
+
+  servoEl.addEventListener('input', function () {
+    renderServo(servoEl.value);
+    pendingServo = servoEl.value;
+  });
+  servoEl.addEventListener('pointerdown', function () { servoHeld = true; });
+  servoEl.addEventListener('pointerup', function () { servoHeld = false; });
+  servoEl.addEventListener('pointercancel', function () { servoHeld = false; });
+
+  // "<L>,<R>,<leftEnabled>,<rightEnabled>,<servoDeg>" from any route.
   function applyStatus(txt) {
     var p = txt.split(',');
     if (p.length < 4) return;
@@ -270,6 +316,12 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
     enabled.l = (p[2] === '1');
     enabled.r = (p[3] === '1');
     renderEnable();
+    // The board's angle is authoritative -- another phone may have moved it --
+    // except under a finger, or while an angle of ours is still on its way.
+    if (p.length >= 5 && !servoHeld && pendingServo === null) {
+      servoEl.value = p[4];
+      renderServo(p[4]);
+    }
   }
 
   function setLink(ok) {
@@ -287,6 +339,9 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
     if (pendingEnable) {
       url = '/enable?l=' + (pendingEnable.l ? 1 : 0) + '&r=' + (pendingEnable.r ? 1 : 0);
       pendingEnable = null;
+    } else if (pendingServo !== null) {
+      url = '/servo?a=' + pendingServo;
+      pendingServo = null;
     } else {
       url = '/drive?x=' + tx + '&y=' + ty;
     }
@@ -307,7 +362,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
   // this; the tick coalesces them so requests cannot pile up.
   setInterval(function () {
     axesEl.textContent = 'x ' + tx + '   y ' + ty;
-    if (pendingEnable) {
+    if (pendingEnable || pendingServo !== null) {
       send();                   // never consumes a burst slot; if the wire is
                                 // busy it simply waits for the next tick
     } else if (active) {
@@ -323,6 +378,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
   place(0, 0);
   renderEnable();
+  renderServo(servoEl.value);
 })();
 </script>
 </body>

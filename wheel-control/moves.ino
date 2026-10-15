@@ -67,7 +67,7 @@ bool startMove(const String &name, long ms, int speed) {
   lastCommand = millis();
   moveUntil = millis() + hold;
 
-  Serial.printf("move: %s for %lu ms at %d%%\n", MOVES[i].name, hold, speed);
+  logf("move: %s for %lu ms at %d%%\n", MOVES[i].name, hold, speed);
   return true;
 }
 

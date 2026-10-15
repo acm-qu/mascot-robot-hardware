@@ -6,7 +6,7 @@ build system here and nothing to install beyond the board packages.
 
 | Subsystem | What it does | Board |
 | --- | --- | --- |
-| [`wheel-control/`](wheel-control/) | Drives the two wheels from an on-screen joystick the board serves itself, over its own Wi-Fi access point, plus named moves (`forward`, `spin_right`, …) over the same HTTP API | ESP32 DevKit v1 |
+| [`wheel-control/`](wheel-control/) | Drives the two wheels from an on-screen joystick the board serves itself, over its own Wi-Fi access point, plus named moves (`forward`, `spin_right`, …) over the same HTTP API | Arduino UNO R4 WiFi |
 
 `docs/` holds board reference photos shared across subsystems.
 
