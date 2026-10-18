@@ -74,8 +74,8 @@ void runCommand(const String &cmd) {
   }
 
   // The tablet sends every expression change as its bare label (RobotLink.kt),
-  // so the rest of the vocabulary arrives here too. These are placeholders
-  // today; "idle" is the resting face and needs nothing.
+  // so the rest of the vocabulary arrives here too (routines.ino);
+  // "idle" is the resting face and needs nothing.
   if (cmd == "sad")        { sad();        return; }
   if (cmd == "happy")      { happy();      return; }
   if (cmd == "angry")      { angry();      return; }

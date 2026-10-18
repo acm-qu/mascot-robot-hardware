@@ -108,6 +108,8 @@ unsigned long MOVE_MAX_MS = 3000;
 //
 // SPIN_360_MS has to stay at or below MOVE_MAX_MS. startMove() caps every
 // hold there, silently, and a capped spin stops short of a full turn.
+unsigned long ROUTINE_START_DELAY_MS = 500;   // pause before every routine's first step; 0 for none
+
 unsigned long SPIN_360_MS = 1800;   // one full turn on the spot
 int SPIN_SPEED = 70;                // percent of full stick deflection
 
@@ -119,6 +121,39 @@ int WIGGLE_SPEED = 60;
 
 unsigned long SURPRISED_MS = 300;   // roughly 10 cm straight back, fast (surprised())
 int SURPRISED_SPEED = 100;
+
+unsigned long SAD_MS = 400;         // a slow back-off, a little further than surprised (sad())
+int SAD_SPEED = 40;
+
+unsigned long HAPPY_MS = 600;       // a slow roll forward (happy())
+int HAPPY_SPEED = 35;
+
+unsigned long PASSIONATE_MS = 400;  // a fast lunge forward (passionate())
+int PASSIONATE_SPEED = 100;
+
+unsigned long ANNOYED_MS = 400;     // a short turn right on the spot (annoyed())
+int ANNOYED_SPEED = 60;
+int ANNOYED_SERVO_DEG = 120;        // head turns here (left of SERVO_START_DEG) while the wheels turn
+                                    // right; use 60 instead if your servo turns the head right
+
+// Every emotion above holds its gesture for UNDO_DELAY_MS and then undoes it,
+// back to where it started with the head centred. annoyed() undoes its turn by
+// mirroring it exactly; the straight ones all drive back at UNDO_SPEED, and
+// routines.ino works out how long each return has to run to cover the same
+// ground. That is a model, not a measurement: if the returns all land short or
+// all land long, tune UNDO_SPEED rather than the per-emotion numbers.
+unsigned long UNDO_DELAY_MS = 2000;
+int UNDO_SPEED = 50;
+
+// The two head-only emotions. Neither moves a wheel or has an undo, so neither
+// needs the wheels armed. "Left" is SERVO_START_DEG + degrees, as for
+// ANNOYED_SERVO_DEG.
+unsigned long ANGRY_SHAKE_MS = 2000;     // how long angry() shakes the head
+int ANGRY_SHAKE_DEG = 5;                 // each side of centre
+unsigned long ANGRY_SHAKE_STEP_MS = 20;  // per side: one servo frame, the fastest it can follow
+
+int EXCITED_SERVO_DEG = 25;              // excited() turns this far right, then this far left
+unsigned long EXCITED_HOLD_MS = 250;     // hold at each side
 
 // The joystick outranks the serial link, and this is how long it keeps the
 // wheels after the last time somebody actually pushed the knob. A routine

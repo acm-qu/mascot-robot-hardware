@@ -36,10 +36,18 @@
 //   spin        one full turn on the spot, counter-clockwise
 //   dance       the six-step routine below
 //   surprised   a fast ~10 cm hop straight back
-//   excited     a quick head shake on the servo; no wheels, no arming needed
+//   excited     head 25 deg right, then straight across to 25 deg left, then
+//               front; no wheels, no arming needed
 //   stop        cancel whatever is running and centre the stick
-//   sad happy angry passionate annoyed idle
-//               the tablet's other expression labels; placeholders, no motion
+//   sad         a slow back-off
+//   happy       a slow roll forward
+//   passionate  a fast lunge forward
+//   annoyed     a short turn right on the spot, head turned left meanwhile
+//
+//               Each of these five holds its gesture for UNDO_DELAY_MS (2 s)
+//               and then undoes it: back to where it started, head centred.
+//   angry       a fast, small head shake for 2 s; no wheels, no arming needed
+//   idle        the resting face; accepted and does nothing
 //
 // The tablet (RobotLink.kt) writes each expression change as its bare label
 // -- "excited\n", "sad\n" -- with no "face:" prefix; the old face:<expr>
@@ -144,12 +152,15 @@
 //
 // With the defaults in config.h:
 //
-//   spin()    1800 ms of holding, plus one ramp-down          ~2.1 s
-//   dance()   3 x 400 + 2 x 250 + 1800 = 3500 ms of holding,
-//             plus a ramp-down after each of the six steps    ~5 s
+//   spin()    500 ms pause + 1800 ms of holding, plus one ramp-down   ~2.6 s
+//   dance()   500 ms pause + 3 x 400 + 2 x 250 + 1800 = 4000 ms,
+//             plus a ramp-down after each of the six steps            ~5.5 s
 //
-// Retune the constants and both numbers move -- the rule is the sum of the
-// holds plus one slew ramp per step. Those are also the lengths somebody has
+// Retune the constants and both numbers move -- the rule is
+// ROUTINE_START_DELAY_MS, plus the sum of the holds, plus one slew ramp per
+// step. The pause is a held "stop" move, so a stop during it still works.
+// The emotions add UNDO_DELAY_MS -- another held "stop" -- and the return move
+// on top of their gesture, so each of them is roughly 4 s end to end. Those are also the lengths somebody has
 // to wait out if they take hold of the knob mid-routine and do not want to
 // reach for STOP.
 
@@ -211,6 +222,17 @@
 //   NUDGE_MS      NUDGE_SPEED    roughly 10 cm forward or back
 //   WIGGLE_MS     WIGGLE_SPEED   a small turn on the spot, either way
 //   SURPRISED_MS  SURPRISED_SPEED roughly 10 cm straight back, fast
+//   SAD_MS        SAD_SPEED       a slow back-off
+//   HAPPY_MS      HAPPY_SPEED     a slow roll forward
+//   PASSIONATE_MS PASSIONATE_SPEED a fast lunge forward
+//   ANNOYED_MS    ANNOYED_SPEED   a short turn right on the spot
+//   UNDO_DELAY_MS UNDO_SPEED      the pause before each emotion's undo, and
+//                                 the speed every straight undo drives back at
+//
+// annoyed()'s undo is its turn mirrored, so it needs no calibrating of its
+// own. The straight undos are a model: routines.ino works out each return's
+// length from the gesture's ms and speed, so retuning a gesture moves its
+// return with it, but the model only approximates the motors -- check them.
 //
 // Two traps worth knowing before you tune. Distance is not proportional to
 // time at these lengths, because SLEW spends the first ~0.4 s of every step
@@ -271,11 +293,14 @@ bool spin();
 // in), and then the same full turn spin() performs.
 bool dance();
 
-// The emotion routines. surprised() is filled in (a fast ~10 cm hop back) and
-// is on the serial link as "surprised". The rest are placeholders for now: none
-// has any moves yet, each returns true straight away without touching a wheel,
-// and none is on the serial link. Once filled in they follow every rule above,
-// the same as spin() and dance().
+// The emotion routines, each on the serial link by its bare name. surprised(),
+// sad(), happy(), passionate() and annoyed() are filled in and follow every
+// rule above, the same as spin() and dance(): each makes its gesture, waits
+// UNDO_DELAY_MS, and undoes it, ending where it started with the head centred.
+// annoyed() also turns the head servo while it runs. angry() and excited()
+// move only the head and have no undo; they skip the arming check but keep
+// the other rules, start pause included, and hold the wheels at centre while
+// they block.
 bool surprised();
 bool sad();
 bool happy();
