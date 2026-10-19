@@ -1,19 +1,21 @@
-// Voice-activated routines -- the two moves a spoken command asks for, the
-// serial link the voice system sends them over, and the rules that decide who
-// gets the wheels when the joystick and the voice system both want them.
+// Routines -- the sequences of moves the robot can play back on its own, the
+// serial link they are requested over, and the rules that decide who gets the
+// wheels when the joystick and the serial link both want them.
 //
-// The definitions are in voice-activated.ino; the numbers that decide how far,
-// how long and how long the joystick holds priority are in config.h. This
-// header is the reference for whoever wires up the microphone: the one place
+// The routines are defined in routines.ino and the serial link in
+// serial-link.ino; the numbers that decide how far, how long and how long the
+// joystick holds priority are in config.h. This
+// header is the reference for whoever wires up the serial sender: the one place
 // that says what a routine is, what calling one costs, and what can refuse or
 // stop it.
 //
 // The Arduino build concatenates every .ino in the folder and inserts a
 // prototype for each function, so no tab has to include this for the sketch to
-// compile -- voice-activated.ino includes it anyway, which is what makes these
-// declarations the ones that have to agree with the definitions. The helpers
-// beside them in that tab (runMove(), beginRoutine(), fullSpin(),
-// stickActive(), runVoiceCommand()) are deliberately not here: they are
+// compile -- routines.ino and serial-link.ino include it anyway, which is
+// what makes these declarations the ones that have to agree with the
+// definitions. The helpers beside them in those tabs (runMove(),
+// beginRoutine(), fullSpin(), stickActive(), runCommand()) are
+// deliberately not here: they are
 // internal, and the tab model already lets any tab call them if it must.
 // routineRunning() is the exception web.ino needs, and it is declared below.
 #pragma once
@@ -21,37 +23,50 @@
 #include <Arduino.h>
 
 
-// === How the voice system talks to the board ===============================
+// === How serial commands reach the board ===================================
 //
-// One command per line of plain text on Serial, at the 115200 setup() already
-// opens. Either line ending works. serviceVoice() reads it, trims it,
-// lower-cases it and matches it against three words:
+// One command per line of plain text on VOICE_LINK (config.h; Serial as
+// shipped), at 115200 -- on the UNO R4 WiFi that is a real UART behind the
+// on-board USB bridge, so the sender has to open the port at 115200 too.
+// Newline, carriage return or both end a line; a word sent with no line
+// ending runs once 50 ms pass with nothing more arriving. readSerial() reads
+// it, drops control and non-ASCII bytes, trims it, lower-cases it, refuses
+// anything that is not a single word, and matches it against these words:
 //
-//   spin    one full turn on the spot, counter-clockwise
-//   dance   the six-step routine below
-//   stop    cancel whatever is running and centre the stick
+//   spin        one full turn on the spot, counter-clockwise
+//   dance       the six-step routine below
+//   surprised   a fast ~10 cm hop straight back
+//   excited     head 25 deg right, then straight across to 25 deg left, then
+//               front; no wheels, no arming needed
+//   stop        cancel whatever is running and centre the stick
+//   sad         a slow back-off
+//   happy       a slow roll forward
+//   passionate  a fast lunge forward
+//   annoyed     a short turn right on the spot, head turned left meanwhile
 //
-// plus one prefixed command:
+//               Each of these five holds its gesture for UNDO_DELAY_MS (2 s)
+//               and then undoes it: back to where it started, head centred.
+//   angry       a fast, small head shake for 2 s; no wheels, no arming needed
+//   idle        the resting face; accepted and does nothing
 //
-//   face:<expr>   run the gesture for a facial expression (faces.ino) -- this
-//                 is how the tablet, wired to the board over USB, drives ACMO's
-//                 body language: it writes "face:happy", "face:angry" and so on
-//                 as its on-screen expression changes. Not a spoken word.
+// The tablet (RobotLink.kt) writes each expression change as its bare label
+// -- "excited\n", "sad\n" -- with no "face:" prefix; the old face:<expr>
+// command and faces.ino are commented out.
 //
 // Anything else is ignored, with a line on serial saying so. Lines longer than
-// 32 characters are dropped whole rather than truncated -- truncating would
-// let "dancefloor" arrive as "dance".
+// 32 characters are dropped whole rather than truncated -- truncating could
+// turn a long line of junk into a real command.
 //
-// That vocabulary is this tab's own. It is deliberately not the MOVES[] table
-// from moves.ino: those names are the HTTP API's vocabulary, they are
-// case-sensitive, and nothing says a thing a person says out loud has to be
-// one of them.
+// That vocabulary is serial-link.ino's own. It is deliberately not the
+// MOVES[] table from moves.ino: those names are the HTTP API's vocabulary,
+// they are case-sensitive, and nothing says a serial command has to be one of
+// them.
 //
-// Two practical notes. The board's own logging goes out of the same UART, so
-// whatever is listening at the other end has to tolerate lines it did not ask
-// for -- every routine reports itself there. And the Arduino Serial Monitor is
-// a complete test harness for all of this: set its line ending to Newline,
-// type dance, press enter.
+// Two practical notes. The board's own logging goes out on Serial -- the same
+// port, as shipped -- so whatever is listening at the other end has to
+// tolerate lines it did not ask for: every routine reports itself there. And the Arduino Serial Monitor is
+// a complete test harness for all of this: set it to 115200 baud, type
+// dance, press enter.
 
 
 // === Who gets the wheels ===================================================
@@ -62,7 +77,7 @@
 // BEFORE A ROUTINE STARTS, THE JOYSTICK WINS. handleDrive() stamps the time
 // whenever the knob is actually deflected, and for STICK_PRIORITY_MS
 // afterwards -- 1.5 s as shipped -- beginRoutine() refuses and says so on
-// serial. The page's STOP button stamps it too. So a spoken "dance" that
+// serial. The page's STOP button stamps it too. So a "dance" command that
 // arrives while somebody is driving is simply dropped, and the driving
 // continues uninterrupted.
 //
@@ -72,37 +87,39 @@
 // keeps the wheels until it finishes or until somebody stops it deliberately:
 //
 //   - GET /stop, which is the STOP button on the page;
-//   - "stop" on the voice link;
+//   - "stop" on the serial link;
 //   - GET /enable?l=0&r=0, which gates the bridges off in hardware and does
 //     not care what the software thinks.
 //
 // The first two are both cancelMove(), which is the one door left open, and
 // they reach the board because a routine keeps pumping handleClient() and
-// serviceVoice() while it blocks. Note what this costs: the knob is no longer
+// readSerial() while it blocks. Note what this costs: the knob is no longer
 // an emergency stop during a routine. The STOP button is, and it is the only
 // HTTP route that can end one.
 //
 // What does NOT count as driving, for the first rule, is the page's idle 0,0
 // heartbeat. It arrives at 5 Hz for as long as anybody has the page open, so
-// counting it would mean the voice system never worked with a phone connected.
+// counting it would mean serial commands never worked with a phone connected.
 // The window exists for the same reason: somebody driving crosses centre,
 // pauses between pushes, and sends three zeros on release, and none of those
 // gaps should be a chance for a routine to jump in.
 //
 // A deflected knob still stamps the priority while a routine runs, even though
 // it is ignored, so the moment a routine ends the person who was pushing the
-// knob already outranks whatever the voice system says next.
+// knob already outranks whatever arrives on serial next.
 //
-// "stop" is the one voice command neither rule applies to. The joystick
-// outranking the voice system is about who gets to MOVE the robot; there is no
+// "stop" is the one serial command neither rule applies to. The joystick
+// outranking the serial link is about who gets to MOVE the robot; there is no
 // reading of that which says a request to stop should be ignored.
 
 
 // === What a routine is =====================================================
 //
-// A routine is a fixed sequence of the named moves in moves.ino, played back
-// to back, so "dance" is one call instead of six timed requests from whatever
-// heard the word.
+// A routine is a fixed sequence of one or more of the named moves in
+// moves.ino, played back to back, so "dance" is one call instead of six timed
+// requests from whatever sent the command. Every step is a name out of MOVES[]:
+// a routine never sets a stick position of its own, so a movement that is not
+// in that table is not something a routine can do.
 //
 // Nothing in this tab touches a wheel. Each step is a real move, started with
 // startMove(), so a routine inherits everything a /move request gets:
@@ -129,18 +146,21 @@
 // the routine runs loop()'s control step itself -- controlStep(), one call per
 // LOOP_MS -- for its whole length.
 //
-// server.handleClient() and serviceVoice() are pumped in the same inner loop,
+// server.handleClient() and readSerial() are pumped in the same inner loop,
 // so the page still loads, the HTTP API still answers, and a stop from either
 // side can still get in. Everything else on the board waits.
 //
 // With the defaults in config.h:
 //
-//   spin()    1800 ms of holding, plus one ramp-down          ~2.1 s
-//   dance()   3 x 400 + 2 x 250 + 1800 = 3500 ms of holding,
-//             plus a ramp-down after each of the six steps    ~5 s
+//   spin()    500 ms pause + 1800 ms of holding, plus one ramp-down   ~2.6 s
+//   dance()   500 ms pause + 3 x 400 + 2 x 250 + 1800 = 4000 ms,
+//             plus a ramp-down after each of the six steps            ~5.5 s
 //
-// Retune the constants and both numbers move -- the rule is the sum of the
-// holds plus one slew ramp per step. Those are also the lengths somebody has
+// Retune the constants and both numbers move -- the rule is
+// ROUTINE_START_DELAY_MS, plus the sum of the holds, plus one slew ramp per
+// step. The pause is a held "stop" move, so a stop during it still works.
+// The emotions add UNDO_DELAY_MS -- another held "stop" -- and the return move
+// on top of their gesture, so each of them is roughly 4 s end to end. Those are also the lengths somebody has
 // to wait out if they take hold of the knob mid-routine and do not want to
 // reach for STOP.
 
@@ -150,7 +170,7 @@
 // Only a deliberate stop, and there are three:
 //
 //   - GET /stop, the page's STOP button;
-//   - "stop" on the voice link;
+//   - "stop" on the serial link;
 //   - disarming a wheel with GET /enable, which stops that wheel in hardware.
 //     The routine itself keeps running and ends at its own pace, because the
 //     enables gate the bridges rather than the sequence.
@@ -161,7 +181,7 @@
 // in.
 //
 // Everything else is refused for the routine's length: a deflected knob, the
-// idle heartbeat, /move, and a second spin() or dance(). A routine never drops
+// idle heartbeat, /move, and a second routine. A routine never drops
 // EN and never arms a wheel -- arming stays the operator's explicit choice
 // (README section 9) -- so it cannot arm the robot, and losing an arm does not
 // abort it.
@@ -201,6 +221,18 @@
 //   SPIN_360_MS   SPIN_SPEED     one full turn on the spot
 //   NUDGE_MS      NUDGE_SPEED    roughly 10 cm forward or back
 //   WIGGLE_MS     WIGGLE_SPEED   a small turn on the spot, either way
+//   SURPRISED_MS  SURPRISED_SPEED roughly 10 cm straight back, fast
+//   SAD_MS        SAD_SPEED       a slow back-off
+//   HAPPY_MS      HAPPY_SPEED     a slow roll forward
+//   PASSIONATE_MS PASSIONATE_SPEED a fast lunge forward
+//   ANNOYED_MS    ANNOYED_SPEED   a short turn right on the spot
+//   UNDO_DELAY_MS UNDO_SPEED      the pause before each emotion's undo, and
+//                                 the speed every straight undo drives back at
+//
+// annoyed()'s undo is its turn mirrored, so it needs no calibrating of its
+// own. The straight undos are a model: routines.ino works out each return's
+// length from the gesture's ms and speed, so retuning a gesture moves its
+// return with it, but the model only approximates the motors -- check them.
 //
 // Two traps worth knowing before you tune. Distance is not proportional to
 // time at these lengths, because SLEW spends the first ~0.4 s of every step
@@ -225,7 +257,7 @@
 //
 // What still holds in that window, in the order you would reach for them:
 //
-//   - the STOP button on the page, and "stop" on the voice link. Both are
+//   - the STOP button on the page, and "stop" on the serial link. Both are
 //     software and both depend on the routine's pumps still running.
 //   - the per-wheel enables, which gate the bridges in hardware. Disarming
 //     works whatever the sketch is doing.
@@ -242,12 +274,13 @@
 // robot should ask too.
 bool routineRunning();
 
-// Read the voice link and run any complete command on it. Called from loop()
-// every pass, and again from inside a running routine. Returns as soon as
-// there is nothing left to read, EXCEPT that a command it recognises runs
-// there and then -- so this call blocks for the length of a routine the same
-// way spin() and dance() do.
-void serviceVoice();
+// Read the serial link and run any complete command on it. Defined in
+// serial-link.ino; declared here because routines.ino calls it too. Called
+// from loop() every pass, and again from inside a running routine. Returns as
+// soon as there is nothing left to read, EXCEPT that a command it recognises
+// runs there and then -- so this call blocks for the length of a routine the
+// same way spin() and dance() do.
+void readSerial();
 
 // One full 360-degree turn on the spot, counter-clockwise. Counter-clockwise
 // because it is the spin_left move: x = -512 through the arcade mix is the
@@ -259,3 +292,19 @@ bool spin();
 // turn right, the same turn back left (so the heading comes out where it went
 // in), and then the same full turn spin() performs.
 bool dance();
+
+// The emotion routines, each on the serial link by its bare name. surprised(),
+// sad(), happy(), passionate() and annoyed() are filled in and follow every
+// rule above, the same as spin() and dance(): each makes its gesture, waits
+// UNDO_DELAY_MS, and undoes it, ending where it started with the head centred.
+// annoyed() also turns the head servo while it runs. angry() and excited()
+// move only the head and have no undo; they skip the arming check but keep
+// the other rules, start pause included, and hold the wheels at centre while
+// they block.
+bool surprised();
+bool sad();
+bool happy();
+bool angry();
+bool passionate();
+bool annoyed();
+bool excited();

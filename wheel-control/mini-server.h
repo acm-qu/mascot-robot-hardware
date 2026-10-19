@@ -14,7 +14,7 @@
 //
 // It is defined in a header, not a tab, because more than one tab names the
 // MiniServer type and the Arduino build only auto-prototypes functions, not
-// classes -- the same reason page.h and voice-activated.h are headers.
+// classes -- the same reason page.h and routines.h are headers.
 #pragma once
 
 #include <Arduino.h>

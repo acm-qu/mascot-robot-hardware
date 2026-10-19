@@ -17,15 +17,15 @@ struct Move {
 };
 
 const Move MOVES[] = {
-  { "forward",        0,  512 },
-  { "backward",       0, -512 },
-  { "spin_left",   -512,    0 },   // wheels opposed: turns on the spot
-  { "spin_right",   512,    0 },
-  { "turn_left",   -360,  512 },   // inside wheel nearly stops: a tight turn
-  { "turn_right",   360,  512 },
-  { "slight_left", -150,  512 },   // a gentle arc, both wheels still driving
-  { "slight_right", 150,  512 },
-  { "stop",           0,    0 },   // centre the stick and hold it there
+  { "forward",        0,  512 },   // y=+512, x=0 => left=+512, right=+512: both wheels drive equally forward, straight line
+  { "backward",       0, -512 },   // y=-512, x=0 => left=-512, right=-512: both wheels reverse together, straight reverse
+  { "spin_left",   -512,    0 },    // x=-512, y=0 => left=-512, right=+512: wheels oppose each other, robot turns on the spot left
+  { "spin_right",   512,    0 },    // x=+512, y=0 => left=+512, right=-512: wheels oppose each other, robot turns on the spot right
+  { "turn_left",   -360,  512 },    // y=+512, x=-360 => left=+152, right=+872: right wheel stronger, robot arcs left while still moving forward; inside wheel is much slower
+  { "turn_right",   360,  512 },    // y=+512, x=+360 => left=+872, right=+152: left wheel stronger, robot arcs right while still moving forward; inside wheel is much slower
+  { "slight_left", -150,  512 },    // y=+512, x=-150 => left=+362, right=+662: gentle left arc; both wheels still drive, but right side pushes harder
+  { "slight_right", 150,  512 },    // y=+512, x=+150 => left=+662, right=+362: gentle right arc; both wheels still drive, but left side pushes harder
+  { "stop",           0,    0 },    // x=0, y=0 => left=0, right=0: command is centred, which cancels steering and brings both wheels to rest
 };
 
 const int MOVE_COUNT = sizeof(MOVES) / sizeof(MOVES[0]);

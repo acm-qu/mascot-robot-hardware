@@ -16,8 +16,7 @@
 // wired voice module -- see VOICE_LINK), and D13 is the on-board LED.
 //
 // If you wired it differently, this block is the only place to change.
-int RIGHT_EN = 9;   
-    // D9~  ENA  (PWM; remove the ENA jumper on the board)
+int RIGHT_EN = 9;       // D9~  ENA  (PWM; remove the ENA jumper on the board)
 int RIGHT_IN1 = 7;      // D7   IN1
 int RIGHT_IN2 = 8;      // D8   IN2
 
@@ -25,7 +24,7 @@ int LEFT_IN3 = 4;       // D4   IN3
 int LEFT_IN4 = 2;       // D2   IN4
 int LEFT_EN = 10;       // D10~ ENB  (PWM; remove the ENB jumper on the board)
 
-int SERVO_CONTROL = D11;  // D11~  servo signal (driven by the Servo library)
+int SERVO_CONTROL = 11;  // D11  servo signal (driven by the Servo library)
 
 // The servo on SERVO_CONTROL: a standard hobby servo on a 50 Hz pulse, its
 // angle set by the pulse width -- SERVO_MIN_US at 0 degrees, SERVO_MAX_US at
@@ -48,12 +47,11 @@ int FACE_SHAKE_LO = 85;              // angry / excited head shake: 85 -> 95 -> 
 int FACE_SHAKE_HI = 95;
 unsigned long FACE_SHAKE_MS = 120;   // dwell at each shake position
 
+// Flip any of these to -1 if that wheel, the steering or the throttle comes
+// out backwards on your wiring -- README section 2.7.
 int LEFT_INVERT = 1;
 int RIGHT_INVERT = 1;
 int INVERT_X = 1;
-// -1 since the move to the L298N: with the wiring above, forward on the stick
-// drove the robot backward. The L298N and the motors did not change with the
-// move to the UNO R4, so this is unchanged. Flip to 1 if yours goes the other way.
 int INVERT_Y = 1;
 
 int DEADZONE = 60;
@@ -67,11 +65,13 @@ int LOOP_MS = 20;
 const char *AP_SSID = "mascot-robot";
 const char *AP_PASS = "mascotbot";
 
-// Which serial port the voice system (voice-activated.ino) reads commands from.
-// Serial is the USB-CDC port, which needs a computer plugged in -- good for
-// testing from the Arduino Serial Monitor. A voice module wired to the board's
-// own UART on D0/D1 instead wants Serial1: change this one line and re-upload.
-// The board's own logging always goes to Serial (USB) whatever this is set to.
+// Which serial port the serial link (serial-link.ino) reads commands from.
+// Serial is the USB-C port -- on the UNO R4 WiFi a UART bridged to USB by the
+// on-board ESP32-S3 -- which is what the tablet and the Arduino Serial Monitor
+// use; open it at 115200. A voice module wired to the board's own UART on
+// D0/D1 instead wants Serial1: change this one line and re-upload, and
+// setup() opens it. The board's own logging always goes to Serial (USB)
+// whatever this is set to.
 #define VOICE_LINK Serial
 
 unsigned long COMMAND_TIMEOUT_MS = 500;
@@ -91,9 +91,9 @@ bool START_ENABLED = false;
 unsigned long MOVE_DEFAULT_MS = 500;
 unsigned long MOVE_MAX_MS = 3000;
 
-// Voice-activated routines (voice-activated.ino). Nothing on this robot
-// measures how far it went -- there is no encoder on either wheel -- so a
-// routine is open-loop and every number below is a stopwatch value for YOUR
+// Routines (routines.ino). Nothing on this robot measures how far it went --
+// there is no encoder on either wheel -- so a routine is open-loop and every
+// number below is a stopwatch value for YOUR
 // robot, YOUR floor and the battery voltage you run at. The values here are
 // starting guesses, not measurements. Calibrate one move at a time:
 //
@@ -108,6 +108,8 @@ unsigned long MOVE_MAX_MS = 3000;
 //
 // SPIN_360_MS has to stay at or below MOVE_MAX_MS. startMove() caps every
 // hold there, silently, and a capped spin stops short of a full turn.
+unsigned long ROUTINE_START_DELAY_MS = 500;   // pause before every routine's first step; 0 for none
+
 unsigned long SPIN_360_MS = 1800;   // one full turn on the spot
 int SPIN_SPEED = 70;                // percent of full stick deflection
 
@@ -117,26 +119,62 @@ int NUDGE_SPEED = 50;
 unsigned long WIGGLE_MS = 250;      // a small turn on the spot, either way
 int WIGGLE_SPEED = 60;
 
-// The joystick outranks the voice system, and this is how long it keeps the
-// wheels after the last time somebody actually pushed the knob. A voice
-// routine asked for inside this window is refused outright.
+unsigned long SURPRISED_MS = 300;   // roughly 10 cm straight back, fast (surprised())
+int SURPRISED_SPEED = 100;
+
+unsigned long SAD_MS = 400;         // a slow back-off, a little further than surprised (sad())
+int SAD_SPEED = 40;
+
+unsigned long HAPPY_MS = 600;       // a slow roll forward (happy())
+int HAPPY_SPEED = 35;
+
+unsigned long PASSIONATE_MS = 400;  // a fast lunge forward (passionate())
+int PASSIONATE_SPEED = 100;
+
+unsigned long ANNOYED_MS = 400;     // a short turn right on the spot (annoyed())
+int ANNOYED_SPEED = 60;
+int ANNOYED_SERVO_DEG = 120;        // head turns here (left of SERVO_START_DEG) while the wheels turn
+                                    // right; use 60 instead if your servo turns the head right
+
+// Every emotion above holds its gesture for UNDO_DELAY_MS and then undoes it,
+// back to where it started with the head centred. annoyed() undoes its turn by
+// mirroring it exactly; the straight ones all drive back at UNDO_SPEED, and
+// routines.ino works out how long each return has to run to cover the same
+// ground. That is a model, not a measurement: if the returns all land short or
+// all land long, tune UNDO_SPEED rather than the per-emotion numbers.
+unsigned long UNDO_DELAY_MS = 2000;
+int UNDO_SPEED = 50;
+
+// The two head-only emotions. Neither moves a wheel or has an undo, so neither
+// needs the wheels armed. "Left" is SERVO_START_DEG + degrees, as for
+// ANNOYED_SERVO_DEG.
+unsigned long ANGRY_SHAKE_MS = 2000;     // how long angry() shakes the head
+int ANGRY_SHAKE_DEG = 5;                 // each side of centre
+unsigned long ANGRY_SHAKE_STEP_MS = 20;  // per side: one servo frame, the fastest it can follow
+
+int EXCITED_SERVO_DEG = 25;              // excited() turns this far right, then this far left
+unsigned long EXCITED_HOLD_MS = 250;     // hold at each side
+
+// The joystick outranks the serial link, and this is how long it keeps the
+// wheels after the last time somebody actually pushed the knob. A routine
+// requested over serial inside this window is refused outright.
 //
 // This window is only about STARTING a routine, and it is the whole of the
 // joystick priority rather than half of it. Once a routine is running it owns
 // the wheels outright: the knob does not interrupt one and neither does a
-// /move, and only a deliberate stop -- GET /stop, or "stop" on the voice
-// link, both of which call cancelMove() -- ends it early. voice-activated.h
-// sets out the whole arrangement.
+// /move, and only a deliberate stop -- GET /stop, or "stop" on the serial
+// link, both of which call cancelMove() -- ends it early. routines.h sets out
+// the whole arrangement.
 //
 // The window is what makes this a priority rather than a race. Nobody drives
 // by deflecting the stick every millisecond: they cross centre, they pause
-// between pushes, and letting go sends three zeros. Too short and the voice
-// system can jump into a gap mid-drive; too long and "dance" stops working
+// between pushes, and letting go sends three zeros. Too short and a serial
+// command can jump into a gap mid-drive; too long and "dance" stops working
 // for a while after anyone touches the page. A second and a half is a pause,
 // not a gap.
 //
 // Only a deflected knob and the page's STOP button count. The page's idle
 // 0,0 heartbeat deliberately does not -- it arrives at 5 Hz for as long as
-// anybody has the page open, so counting it would mean voice never worked
-// with a phone connected.
+// anybody has the page open, so counting it would mean serial commands never
+// worked with a phone connected.
 unsigned long STICK_PRIORITY_MS = 1500;

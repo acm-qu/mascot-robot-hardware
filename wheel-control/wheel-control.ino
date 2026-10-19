@@ -16,15 +16,14 @@
 //   mini-server.h       the tiny WebServer stand-in over WiFiS3 (UNO R4 has none)
 //   mixing.ino          the math: stick position -> a signed PWM per wheel
 //   moves.ino           named moves: forward, spin_right, slight_left, ...
-//   faces.ino           /face route: a small move/servo gesture per app expression
-//   voice-activated.ino the spin and dance routines and the serial voice link
-//   voice-activated.h   what a routine is and promises; the reference for it
+//   faces.ino           the old /face gestures -- fully commented out; the tablet now sends bare labels handled in serial-link.ino
+//   routines.ino        the spin, dance and emotion routines, and who gets the wheels
+//   routines.h          what a routine is and promises; the reference for it and the serial link
+//   serial-link.ino     reads commands off VOICE_LINK and calls the routines
 //   web.ino             the access point and every HTTP route
 //   page.h              the control page the browser loads
 //   servo.ino           the servo: attach, angle -> pulse (Servo library)
 //   wheels.ino          the L298N: direction pins, enable/PWM writes
-//   legacy.ino          the old IBT-2 driver, inside #if 0 -- compiles to nothing
-//   legacy-esp32.ino    the previous ESP32 build, inside #if 0 -- compiles to nothing
 //
 // The IDE compiles all the .ino tabs as one file -- this one first, the rest
 // in alphabetical order, with a prototype for every function inserted up
@@ -34,7 +33,7 @@
 
 MiniServer server(80);
 
-// printf() for the log. The UNO R4's Serial (a USB-CDC UART) has no printf, so
+// printf() for the log. The UNO R4 core's Serial has no printf(), so
 // the sketch's log lines route through this instead -- one buffer, formatted
 // with vsnprintf and printed. Defined here in the main tab so every tab can
 // call it; the explicit prototype keeps the variadic signature unambiguous.
@@ -54,9 +53,9 @@ unsigned long lastCommand = 0;
 
 // millis() of the last time somebody actually pushed the knob -- a deflected
 // /drive, or the page STOP button -- and 0 if nobody has yet. The page idle
-// heartbeat does not touch it. voice-activated.ino reads it through
-// stickActive() to decide whether the joystick currently outranks the voice
-// system; nothing else depends on it.
+// heartbeat does not touch it. routines.ino reads it through
+// stickActive() to decide whether the joystick currently outranks the serial
+// link; nothing else depends on it.
 unsigned long lastStickInput = 0;
 
 int leftSpeed = 0;
@@ -75,6 +74,13 @@ unsigned long lastPrint = 0;
 void setup() {
   Serial.begin(115200);
 
+  // The serial link (serial-link.ino) reads VOICE_LINK. When that is Serial
+  // it is already open; when config.h points it at Serial1 it needs its own
+  // begin(), at the same 115200 the sender is told to use.
+  if ((void *)&VOICE_LINK != (void *)&Serial) {
+    VOICE_LINK.begin(115200);
+  }
+
   // Motors first, and stopped, before the radio draws its start-up current.
   setupRightWheel();
   setupLeftWheel();
@@ -84,21 +90,21 @@ void setup() {
 
   // After the wheels. On the UNO R4 the Servo library and analogWrite() both
   // draw on the RA4M1's general-purpose timers; the servo pin is kept off the
-  // wheel EN pins so they do not contend -- see setupServo(). (Left commented
-  // out as it was on the ESP32 working tree; uncomment to init the servo.)
+  // wheel EN pins so they do not contend -- see servo.ino.
   setupServo();
 
   startAccessPoint();
   startServer();
 
+  // Disabled for now -- uncomment to have the robot dance on every boot.
   // bootDance();
 
   Serial.println(F("Mascot robot ready."));
 }
 
-// The first thing the robot does after a flash -- and after every reset, since
-// setup() cannot tell the two apart -- is the dance routine from
-// voice-activated.ino. It goes after startServer() on purpose: a routine pumps
+// When it is enabled in setup() (it ships commented out), the first thing the
+// robot does after a flash -- and after every reset, since setup() cannot tell
+// the two apart -- is the dance routine from routines.ino. It goes after startServer() on purpose: a routine pumps
 // server.handleClient() while it blocks, and the page STOP button is the only
 // HTTP route that can end one, so a dance started before the server was up
 // would have no software stop at all.
@@ -123,10 +129,10 @@ void bootDance() {
 void loop() {
   server.handleClient();
 
-  // The voice system is a serial line, and a command off it can block here
-  // for the length of a whole routine. It runs every pass rather than per
-  // control step so a line is never left sitting in the UART buffer.
-  serviceVoice();
+  // A command off the serial line can block here for the length of a whole
+  // routine. This runs every pass rather than per control step so a line is
+  // never left sitting in the UART buffer.
+  readSerial();
 
   unsigned long now = millis();
   if (now - lastStep < (unsigned long)LOOP_MS) {
@@ -138,7 +144,7 @@ void loop() {
 }
 
 // One control step, the whole of it. It is a function of its own only so that
-// voice-activated.ino can run it: a routine blocks loop() for its own length,
+// routines.ino can run it: a routine blocks loop() for its own length,
 // so it has to keep this step running or its moves would never reach a wheel.
 void controlStep(unsigned long now) {
   // A running move stamps lastCommand itself, so this has to come before the

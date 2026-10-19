@@ -1,3 +1,7 @@
+// No 💖
+
+/*
+
 // Faces: ACMO's body language. The Kotlin app calls GET /face?name=<expr>
 // whenever its on-screen expression changes -- the first time it shows one, or
 // any switch to another -- and this tab turns that into a small movement and/or
@@ -91,7 +95,7 @@ bool runFace(const String &name) {
 }
 
 // GET /face?name=<expr>, for a WiFi client or a curl. The tablet does not use
-// this -- it sends "face:<expr>" over the USB serial link (voice-activated.ino).
+// this -- it sends "face:<expr>" over the USB serial link (serial-link.ino).
 // Unknown names get a 400, like /move.
 void handleFace() {
   String name = server.arg("name");
@@ -102,3 +106,5 @@ void handleFace() {
   logf("face: %s\n", name.c_str());
   server.send(200, "text/plain", statusBody());
 }
+
+*/

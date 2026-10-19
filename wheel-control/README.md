@@ -10,9 +10,12 @@ writes those speeds out as a direction and a PWM per wheel.
 It also knows a handful of **named moves** — `forward`, `spin_right`,
 `slight_left` and so on — that one `GET /move` request starts and the board
 times by itself, so a tablet app (or a `curl`) can ask for a motion without
-streaming stick positions. See section 4.
+streaming stick positions. See section 4. Over the USB cable it also takes
+plain-text serial commands — a few short **routines** (`spin`, `dance`,
+`surprised`), `stop`, and the tablet's `face:<expr>` changes; see *Serial
+commands and routines* in section 4.
 
-The sketch is split across seven files, one per concern; section 5 says what
+The sketch is split across thirteen files, one per concern; section 5 says what
 lives where.
 
 There is no physical joystick any more. The L298N's `ENA` / `ENB` are on the
@@ -26,7 +29,7 @@ cuts the drive if no command arrives for 500 ms. See section 9.
 
 **`wheel-control.ino` is the file you open and upload.** An Arduino sketch's
 entry point is the `.ino` named after its folder — there is no `main` or
-`index` — and opening it in the Arduino IDE brings the other ten files along
+`index` — and opening it in the Arduino IDE brings the other twelve files along
 as tabs. *Upload* compiles all of them together.
 
 1. Install the board package once: *Tools → Board → Boards Manager* →
@@ -210,18 +213,18 @@ of every stop — that brief buzz is expected. Raising `SLEW` shortens it.
 ### 2.7 Inversion
 
 `LEFT_INVERT` and `RIGHT_INVERT` are applied last, on the way to the hardware.
-`RIGHT_INVERT` is `-1` because the two motors are mounted facing opposite
-directions: "forward" for the chassis is clockwise for one motor and
-counter-clockwise for the other. `INVERT_X` / `INVERT_Y` flip the incoming web
+Two motors mounted facing opposite directions need one of them flipped —
+"forward" for the chassis is clockwise for one motor and counter-clockwise for
+the other — unless the motor wiring already swaps it, as it does on this robot,
+so all four inversions ship as `1`. `INVERT_X` / `INVERT_Y` flip the incoming web
 axes, applied first — the quickest fix if steering or throttle comes out
 backwards and you would rather not edit the page.
 
 ### 2.8 Worked example
 
 Knob pushed forward-right, browser sending `x = +300`, `y = +400`. All
-arithmetic on the board is integer, truncating. (The table takes `INVERT_X`
-and `INVERT_Y` as 1 to keep the signs readable; with the shipped `INVERT_Y =
--1` every `y` below is negated first, and the two wheels end up reversed.)
+arithmetic on the board is integer, truncating. All four inversions are the
+shipped `1`; flipping any of them flips the matching sign below.
 
 | step | left | right |
 |---|---|---|
@@ -230,8 +233,8 @@ and `INVERT_Y` as 1 to keep the signs readable; with the shipped `INVERT_Y =
 | mix | l = 385+271 = **656** | r = 385-271 = **114** |
 | normalise (biggest = 656) | l = 656·512/656 = **512** | r = 114·512/656 = **88** |
 | toPwm | 40 + 511·215/511 = **255** | 40 + 87·215/511 = **76** |
-| invert | ×1 → **+255** | ×-1 → **-76** |
-| hardware | left `IN3` HIGH, `ENB` = 255 | right `IN2` HIGH, `ENA` = 76 |
+| invert | ×1 → **+255** | ×1 → **+76** |
+| hardware | left `IN3` HIGH, `ENB` = 255 | right `IN1` HIGH, `ENA` = 76 |
 
 The left wheel runs flat out, the right wheel crawls: a tight right-hand turn,
 with the ratio between the wheels preserved from the mix. Reaching those values
@@ -247,9 +250,7 @@ inputs like better than the ESP32's 3.3 V did.
 
 Pin numbers come straight from the constants in `config.h`. Only `D3`, `D5`,
 `D6`, `D9`, `D10` and `D11` do PWM (`analogWrite`), so the two EN pins have to
-be among those; the four IN pins are plain digital. (The `image.png` in this
-folder is the older ESP32 + L298N diagram — the wiring is the same shape, but
-the pin numbers below supersede it.)
+be among those; the four IN pins are plain digital.
 
 ### The L298N — both wheels
 
@@ -276,22 +277,20 @@ which way current flows through the motor; the enable pin carries the PWM that
 sets how hard. `rotateWheel()` writes the direction only with the enable at 0,
 so a motor never sees a reversal under power.
 
-**The servo** sits on `D3` (`SERVO_CONTROL`): signal to `D3`, ground to `GND`,
+**The servo** sits on `D11` (`SERVO_CONTROL`): signal to `D11`, ground to `GND`,
 and its power to a supply that can take the stall current — a high-torque servo
 like the HS-5998MG can pull two to three amps when it strains, far more than the
 board's 5V pin will give, so power it from the motor supply (or its own 5–6 V
 rail) with a common ground, never from the R4. `servo.ino`
 drives it through the Arduino **Servo** library (the R4 has no LEDC peripheral).
 
-**Still free on this board:** the analog pins `A0`–`A5`, `D5`~, `D6`~, `D11`~,
+**Still free on this board:** the analog pins `A0`–`A5`, `D3`~, `D5`~, `D6`~,
 `D12`, and `D0`/`D1` if you do not use `Serial1` for a wired voice module. `D13`
 is the on-board LED.
 
 **Before the L298N** each wheel had its own IBT-2 (BTS7960) bridge on twelve
-signals; and before this board the whole sketch ran on a 30-pin ESP32 DevKit v1.
-Both are kept inside `#if 0` so they compile to nothing: the IBT-2 driver in
-`legacy.ino`, the ESP32 build in `legacy-esp32.ino`. Each tab says how to put it
-back.
+signals, and before this board the whole sketch ran on a 30-pin ESP32 DevKit v1.
+Neither build is kept in this folder.
 
 ### UNO R4 pin constraints
 
@@ -303,7 +302,7 @@ constraint if you move things:
 - **`D0`/`D1` are `Serial1`** (a wired voice module — see `VOICE_LINK` in
   `config.h`), and **`D13` is the on-board LED** — avoid both unless you mean it.
 - **The Servo library and `analogWrite()` share the RA4M1's GP timers.** Keep
-  the servo pin off the EN pins (it is, on `D3`) so they cannot contend.
+  the servo pin off the EN pins (it is, on `D11`) so they cannot contend.
 
 ---
 
@@ -368,13 +367,12 @@ disarm; it zeroes the axes and leaves the enables as you set them.
 | Route | Returns | Purpose |
 |---|---|---|
 | `GET /` | the page, `text/html` | what the browser loads |
-| `GET /drive?x=<-512..512>&y=<-512..512>` | status | one control command, and the heartbeat that keeps the failsafe fed. Anything other than `0,0` also cancels a running move |
+| `GET /drive?x=<-512..512>&y=<-512..512>` | status | one control command, and the heartbeat that keeps the failsafe fed. Anything other than `0,0` also cancels a running move. Ignored while a routine runs |
 | `GET /enable?l=<0\|1>&r=<0\|1>` | status | arms or disarms either wheel; an omitted argument leaves that wheel alone |
-| `GET /stop` | status | zeroes both axes immediately, and cancels a running move |
-| `GET /move?name=<move>&ms=<hold>&speed=<0..100>` | status, or 400 | starts a named move on the board's own clock — see *Named moves* below |
+| `GET /stop` | status | zeroes both axes immediately, and cancels a running move or routine |
+| `GET /move?name=<move>&ms=<hold>&speed=<0..100>` | status, 400, or 409 while a routine runs | starts a named move on the board's own clock — see *Named moves* below |
 | `GET /moves` | the move names, comma-separated | what `/move` accepts, so a client need not hard-code the list |
 | `GET /servo?a=<0..180>` | status, or 400 | moves the servo to that angle, clamped. Independent of the wheels: it neither feeds the failsafe nor counts as stick input |
-| `GET /face?name=<expr>` | status, or 400 | runs the body-language gesture for an expression (`faces.ino`). A curl/WiFi convenience; the tablet drives faces over USB serial instead (below) |
 | anything else | 404 `not found` | |
 
 Every control route answers with the same one-line **status**:
@@ -383,7 +381,7 @@ Every control route answers with the same one-line **status**:
 <leftSpeed>,<rightSpeed>,<leftEnabled>,<rightEnabled>,<servoDeg>
 ```
 
-e.g. `254,-76,1,0`. The board is the authority on all four, so the readouts and
+e.g. `255,76,1,1,90`. The board is the authority on all five, so the readouts and
 the arm buttons track it no matter which request came back last — which is also
 what keeps two phones on the same page consistent, and what restores the buttons
 correctly after a reload. `/drive` arguments are clamped server-side.
@@ -406,14 +404,49 @@ The tablet's face app tells the board which expression ACMO is showing, and
 the board answers with a little body language — a small nudge and/or a servo
 gesture. The app is wired to the board over the **USB cable** and writes one
 line per expression change to the board's `Serial`, `face:happy`,
-`face:angry` and so on; `serviceVoice()` reads it and `runFace()` (in
-`faces.ino`) runs the gesture. `GET /face?name=<expr>` does the same over
+`face:angry` and so on; `readSerial()` (in `serial-link.ino`) reads it and
+`runFace()` (in `faces.ino`) runs the gesture. `GET /face?name=<expr>` does the same over
 WiFi, kept as a `curl` test path. The gestures: *sad/happy/passionate* nudge
 a tiny bit (back, forward, forward); *angry/excited* nudge back and shake the
 head (servo 85 → 95 → 90); *annoyed* swings the servo to 120; *idle/surprised*
 rest at 90. The nudges go through `startMove()`, so **nothing moves until the
 wheels are armed** — until then only the servo gestures show. Tune the sizes
 with the `FACE_*` constants in `config.h`.
+
+### Serial commands and routines
+
+The board reads one plain-text command per line from `VOICE_LINK` (`Serial`,
+the USB cable, as shipped — or `Serial1` on `D0`/`D1`, see `config.h`):
+
+| command | does |
+|---|---|
+| `spin` | one full turn on the spot (`SPIN_360_MS`) |
+| `dance` | back, forward, back, a small wiggle, then the full turn |
+| `surprised` | a fast ~10 cm hop straight back |
+| `stop` | cancels whatever is running and centres the stick; never refused |
+| `excited` | a quick servo head shake; head only, works with the wheels disarmed |
+| `sad` `happy` `angry` `passionate` `annoyed` `idle` | the tablet's other expression labels, sent bare; placeholders that do nothing yet |
+
+The old `face:<expr>` command and the `GET /face` route are disabled
+(`faces.ino` is commented out); the tablet now sends bare labels.
+
+A command is a single bare word, with no header or framing. Control and
+non-ASCII bytes are dropped, then the word is trimmed and lower-cased; a line
+with a space inside it is refused. Newline, carriage return or both end a
+line, and a word sent with no line ending runs once 50 ms pass with nothing
+more arriving. A line over 32 characters is dropped whole. **Open the port at
+115200.** On the UNO R4 WiFi the USB-C socket is bridged to the RA4M1's UART
+by the on-board ESP32-S3, so — unlike a native-USB board — the baud is real
+and a mismatch reads as garbage. The board's own log goes out on the same port,
+so the sender has to tolerate lines it did not ask for. The Arduino Serial
+Monitor at 115200 is a complete test harness.
+
+`spin`, `dance` and `surprised` are **routines**: fixed sequences of named
+moves that block until they finish. A routine refuses to start while either
+wheel is disarmed or while somebody has driven from the page in the last
+`STICK_PRIORITY_MS` (1.5 s); once running, it ignores the knob and `/move`
+(409), and only `stop`, the page's STOP button, or disarming a wheel ends it.
+`routines.h` is the full reference.
 
 ### Named moves
 
@@ -465,6 +498,9 @@ exactly like a released knob. Until then:
   open, and it would otherwise kill every move within 200 ms of a phone being
   connected;
 - disarming a wheel stops that wheel, as always.
+
+(Inside a routine the knob and `/move` are turned away instead — see *Serial
+commands and routines* above.)
 
 Add a move by adding a row to `MOVES[]` in `moves.ino`. Nothing else needs to
 change — `/moves` and the 400 message read the table.
@@ -525,13 +561,13 @@ The sketch is one folder, and the Arduino IDE shows each file in it as a tab:
 | `mixing.ino` | The math of section 2: `applyDeadzone()`, `arcadeMix()`, `toPwm()`, `slew()`. Pure functions |
 | `moves.ino` | The `MOVES[]` table and the functions that start, time and cancel a move |
 | `faces.ino` | A gesture per app expression (`faceHappy()`, `faceAngry()`, …) and the `/face` route; `runFace()` dispatches by name |
-| `voice-activated.ino` | `spin()`, `dance()`, `serviceVoice()` and the routine guards |
-| `voice-activated.h` | The contract for a routine: what it is, what blocks, what stops it. Included only by `voice-activated.ino` |
+| `routines.ino` | `spin()`, `dance()`, `surprised()`, the emotion placeholders, and the routine guards |
+| `routines.h` | The contract for a routine and the serial link: what it is, what blocks, what stops it, who gets the wheels. Included by `routines.ino` and `serial-link.ino` |
+| `serial-link.ino` | `readSerial()` and `runCommand()`: reads commands off `VOICE_LINK` and calls the routines |
 | `web.ino` | `startAccessPoint()`, `startServer()`, every route handler, `statusBody()` |
 | `page.h` | `INDEX_HTML`, the control page. Included only by `web.ino` |
 | `servo.ino` | The servo on `SERVO_CONTROL`: `setupServo()`, `setServo()` |
 | `wheels.ino` | Everything that touches a wheel pin, for the L298N: `setup*Wheel()`, `enableWheel()`, `driveWheel()`, `rotateWheel()`, `stopWheels()` |
-| `legacy.ino` | The IBT-2 (BTS7960) driver and pins from before the L298N, inside `#if 0`. Compiles to nothing |
 
 There is no build system and nothing to configure: every `.ino` in the folder
 is compiled **as one file** — the one named after the folder first, the rest
@@ -558,8 +594,8 @@ once, from the main file.
 
 Runs once, in this order, and the order is deliberate:
 
-1. `Serial.begin(115200)` — the baud the Serial Monitor and the voice link
-   (`VOICE_LINK`) both expect.
+1. `Serial.begin(115200)` — the baud the Serial Monitor and the serial link
+   both expect. If `VOICE_LINK` is `Serial1`, it is opened at 115200 too.
 2. `setupRightWheel()` / `setupLeftWheel()` — direction pins to `OUTPUT` and
    LOW, enable pins to `OUTPUT` with **0 duty**. The motors coast here, before
    anything else can happen.
@@ -569,13 +605,13 @@ Runs once, in this order, and the order is deliberate:
 4. `enableWheel('R', START_ENABLED)` / `enableWheel('L', …)` — the enables are
    already at 0 from step 2; this makes the disarmed state explicit and sets
    the flags the page reads back.
-5. `setupServo()` — attach `SERVO_CONTROL` (`D3`) through the Servo library and
+5. `setupServo()` — attach `SERVO_CONTROL` (`D11`) through the Servo library and
    go to `SERVO_START_DEG`. Kept off the wheel EN pins so the shared RA4M1
-   timers do not contend. *(Currently commented out in `setup()`.)*
+   timers do not contend.
 6. `startAccessPoint()` — `WiFi.config(192.168.4.1)`, then `WiFi.beginAP()`,
    print the IP.
 7. `startServer()` — register the routes and `begin()` listening.
-8. `bootDance()` *(currently commented out in `setup()`)* — arm both wheels, run `dance()` from `voice-activated.ino`,
+8. `bootDance()` *(currently commented out in `setup()`)* — arm both wheels, run `dance()` from `routines.ino`,
    then set both enables back to `START_ENABLED`. This is the first thing the
    robot visibly does after a flash, and after every reset. It comes after the
    server is up because the routine pumps `handleClient()` while it blocks and
@@ -589,6 +625,7 @@ control step on `millis()`:
 
 ```
 server.handleClient()            every pass, as fast as possible
+readSerial()                     every pass; a routine command blocks here
 
 if (millis() - lastStep < LOOP_MS) return
 lastStep = millis()
@@ -624,6 +661,7 @@ All in `config.h`.
 |---|---|---|
 | `AP_SSID` | `"mascot-robot"` | Network the board creates. |
 | `AP_PASS` | `"mascotbot"` | **Change it.** 8 characters minimum or the network comes up open. |
+| `VOICE_LINK` | `Serial` | Port the serial link reads commands from. `Serial1` for a module wired to `D0`/`D1`. |
 | `COMMAND_TIMEOUT_MS` | 500 | Silence after which the drive is cut. Section 9. |
 | `START_ENABLED` | `false` | Arm state at boot. `false` means a reset or a fresh upload cannot drive anything until you tap a wheel on. Set `true` for the old always-live behaviour. |
 | `MOVE_DEFAULT_MS` | 500 | How long `/move` holds the stick when the request gives no `ms`. |
@@ -634,9 +672,9 @@ All in `config.h`.
 | `SLEW` | 12 | Max PWM change per loop. Lower = gentler and slower to respond; higher = snappier and harder on the battery. |
 | `LOOP_MS` | 20 | Control-step period, ~50 Hz. |
 | `LEFT_INVERT` | 1 | Flip to -1 if the left wheel runs backwards. |
-| `RIGHT_INVERT` | -1 | Already -1 for the mirrored motor mounting. |
+| `RIGHT_INVERT` | 1 | Flip to -1 if the right wheel runs backwards. |
 | `INVERT_X` | 1 | Flip to -1 if steering is reversed. |
-| `INVERT_Y` | -1 | Flipped with the move to the L298N: on that wiring, forward drove backward. Set 1 if yours goes the other way. |
+| `INVERT_Y` | 1 | Flip to -1 if throttle is reversed. |
 | `SERVO_MIN_US` | 500 | Pulse width at 0°. Raise toward 1000 if the servo buzzes or strains at that end. |
 | `SERVO_MAX_US` | 2400 | Pulse width at 180°. Lower toward 2000 if it strains at that end. |
 | `SERVO_START_DEG` | 90 | Where the servo goes at boot. |
@@ -646,6 +684,11 @@ All in `config.h`.
 | `FACE_ANNOYED_SERVO` | 120 | Where *annoyed* swings the servo (from 90). |
 | `FACE_SHAKE_LO` / `FACE_SHAKE_HI` | 85 / 95 | The angry/excited head-shake endpoints (85 → 95 → 90). |
 | `FACE_SHAKE_MS` | 120 | Dwell at each shake position. |
+| `SPIN_360_MS` / `SPIN_SPEED` | 1800 / 70 | One full turn on the spot, for `spin()` and the end of `dance()`. Must stay ≤ `MOVE_MAX_MS`. Calibrate — see `config.h`. |
+| `NUDGE_MS` / `NUDGE_SPEED` | 400 / 50 | The ~10 cm back-and-forth steps of `dance()`. |
+| `WIGGLE_MS` / `WIGGLE_SPEED` | 250 / 60 | The small turn each way in `dance()`. |
+| `SURPRISED_MS` / `SURPRISED_SPEED` | 300 / 100 | The fast hop back of `surprised()`. |
+| `STICK_PRIORITY_MS` | 1500 | How long after the knob was last deflected (or STOP pressed) a serial routine is refused. |
 
 ## 7. Globals
 
@@ -657,22 +700,27 @@ In `wheel-control.ino` unless the row says otherwise.
 | `INDEX_HTML` | `const char[] PROGMEM` | The whole control page. In `page.h`. |
 | `webX`, `webY` | `int` | Last commanded axes, -512 → +512. Written by `handleDrive()`. |
 | `lastCommand` | `unsigned long` | `millis()` of the last `/drive`, `/stop` or `/move` — or of the last control step while a move runs. The failsafe measures against this. |
+| `lastStickInput` | `unsigned long` | `millis()` of the last deflected `/drive` or `/stop`; 0 until then. Decides whether a routine may start. |
 | `lastStep` | `unsigned long` | `millis()` of the last control step, for the `LOOP_MS` gate. |
 | `leftSpeed`, `rightSpeed` | `int` | Signed PWM currently applied, -255 → 255. Persist across loops — slew needs the previous value. |
 | `leftEnabled`, `rightEnabled` | `bool` | Whether each wheel's enable pin may carry a duty cycle. Written only by `enableWheel()`; read by `rotateWheel()`, which writes 0 to a disarmed wheel whatever it is asked. |
+| `servoDeg` | `int` | Where the servo was last told to go, 0–180. Written by `setServo()`, reported in the status line. |
 | `lastPrint` | `unsigned long` | `millis()` of the last serial report, for rate limiting. |
 | `MOVES`, `MOVE_COUNT` | `const Move[]`, `const int` | The move table — name, x, y — and its length. In `moves.ino`. |
 | `moveUntil` | `unsigned long` | `millis()` at which the running move stops holding the stick; 0 when none is running. In `moves.ino`, touched only by its own functions. |
+| `inRoutine` | `bool` | Whether a routine is running. In `routines.ino`; read elsewhere through `routineRunning()`. |
 
 ## 8. Functions
 
 | Tab | Function | Does |
 |---|---|---|
 | `main` | `setup()` | Boot sequence, section 5. |
-| `main` | `loop()` | HTTP service plus one gated control step, section 5. |
+| `main` | `loop()` | HTTP and serial service plus one gated control step, section 5. |
+| `main` | `controlStep(unsigned long now)` | One control step — move service, failsafe check, mix, slew, drive, report. Its own function so a routine can run it while it blocks. |
+| `main` | `logf(const char *fmt, ...)` | `printf()` to `Serial`; the R4 core's `Serial` has none. |
 | `main` | `bootDance()` | Arms both wheels, runs `dance()`, then sets both enables back to `START_ENABLED`. Called last in `setup()`, section 5. |
 | `web` | `startAccessPoint()` | `WiFi.config(192.168.4.1)` then `WiFi.beginAP(AP_SSID, AP_PASS)`, prints the IP. Says so on serial and returns if the module is missing or the AP fails to come up. |
-| `web` | `startServer()` | Registers `/`, `/drive`, `/enable`, `/stop`, `/move`, `/moves`, `/servo` and the 404, then starts listening. |
+| `web` | `startServer()` | Registers `/`, `/drive`, `/enable`, `/stop`, `/move`, `/moves`, `/servo`, `/face` and the 404, then starts listening. |
 | `web` | `statusBody()` | Builds the `L,R,leftEnabled,rightEnabled,servoDeg` line every control route replies with. |
 | `wheels` | `enableWheel(char wheel, bool on)` | The only function that arms or disarms a wheel. Brings its enable pin to 0 and zeroes its stored speed on both edges, so re-arming cannot resume at whatever it was doing. |
 | `web` | `handleRoot()` | `send_P()` streams `INDEX_HTML` to the client in chunks. |
@@ -704,6 +752,12 @@ In `wheel-control.ino` unless the row says otherwise.
 | `wheels` | `rotateWheel(char wheel, int dir, int speed)` | The only function that writes a wheel pin. Enable to 0, then the two direction pins for `dir`, then the enable back up to `speed` (0–255) — and 0 whatever was asked if the wheel is disarmed. |
 | `wheels` | `stopWheels()` | `rotateWheel(..., 0, 0)` on both wheels — both enables to 0, both motors coasting. Does not change the arm flags; that is `enableWheel()`'s job. |
 | `wheels` | `setupLeftWheel()`, `setupRightWheel()` | One wheel's pins: direction pins to `OUTPUT` and LOW, enable to `OUTPUT` at 0 duty. |
+| `serial-link` | `readSerial()` | Reads `VOICE_LINK` without blocking, assembles a line, and hands each complete one to `runCommand()`. Blocks only for the length of a routine it starts. |
+| `serial-link` | `runCommand(const String &cmd)` | `stop`, `spin`, `dance`, `surprised` or `face:<expr>`; logs anything else. |
+| `routines` | `spin()`, `dance()`, `surprised()` | The routines. Block until done; `true` if they ran to the end. `routines.h` has the rules. |
+| `routines` | `beginRoutine()`, `endRoutine()` | The guard: refuses (and says why) if a routine is running, the joystick has priority, or a wheel is disarmed. |
+| `routines` | `runMove(name, ms, speed)` | One step of a routine: `startMove()`, then runs `controlStep()` and both pumps until the move ends. `false` if cancelled. |
+| `routines` | `routineRunning()`, `stickActive()` | Whether a routine owns the wheels; whether the knob still has priority. |
 
 ### On `rotateWheel()`
 
@@ -733,7 +787,7 @@ one window is still outside software's reach.
 
 ### The link failsafe
 
-Every `/drive`, `/stop` and `/move` stamps `lastCommand`. If a control step finds more
+Every `/drive`, `/stop` and `/move`, and a serial `stop`, stamps `lastCommand`. If a control step finds more
 than `COMMAND_TIMEOUT_MS` (500 ms) of silence, `failsafe()` runs: both axes to
 0, both applied speeds to 0, `stopWheels()`, done.
 
@@ -750,11 +804,10 @@ a harder stop and buys back that 0.44 s:
 Letting go of the knob normally still ramps down — the failsafe path only fires
 when the link itself has gone quiet.
 
-It deliberately does **not** drop `EN`. Arming is your explicit choice and the
-robot should not silently re-arm itself when the link returns. Leaving `EN` high
-with 0 duty also turns both low-side FETs on, which brakes the motors; dropping
-`EN` would let them coast. For a robot you have lost contact with, braking is
-what you want.
+It deliberately does **not** disarm. The arm flags stay as you set them, so
+the robot neither re-arms itself nor needs re-arming when the link returns. On
+the L298N the cut is `EN` at 0 with both `IN` pins LOW, so the motors coast to
+a stop rather than braking.
 
 The browser's 5 Hz idle heartbeat is what keeps the failsafe fed while you are
 connected but not driving. That means closing the tab, locking the phone or
@@ -775,7 +828,8 @@ what it can do:
 - **The enables still gate it.** A move is a stick position and nothing more;
   a disarmed wheel is dead in hardware for a move exactly as for the knob.
 - **Whoever is holding the phone wins.** A deflected knob or `/stop` cancels
-  the move at once.
+  the move at once. (A routine is the exception: only `/stop`, a serial `stop`
+  or disarming ends one — see `routines.h`.)
 
 When the hold ends the stick is centred and the wheels ramp down through
 `slew()` — a designed stop, so the stamping continues until both wheels are at
@@ -795,8 +849,9 @@ enable pin, and with the enable at 0 no value on the `IN` pins can move it.
 
 `START_ENABLED` is `false`, so a reset or a fresh upload lands disarmed every
 time. That is the behaviour worth keeping: the old build went live the instant
-it booted. The boot dance is the one exception: `bootDance()` in `setup()`
-arms both wheels for the length of `dance()` and puts them back to
+it booted. The boot dance, if you enable it (it ships commented out in
+`setup()`), is the one exception: `bootDance()` arms both wheels for the length
+of `dance()` and puts them back to
 `START_ENABLED` when it ends, so the robot drives itself for about five seconds
 on every boot, and then lands disarmed as before. Keep the chassis on blocks or
 the motor supply off when uploading — the knob cannot interrupt a routine.
@@ -849,9 +904,8 @@ up with no password and no warning.
 | Robot keeps moving after you let go | Should be impossible — release sends three zeros and the failsafe is the backstop. Check serial for `link lost -- motors cut`. |
 | Push the knob and one wheel does nothing | That wheel is disarmed. Tap `LEFT`/`RIGHT` until it reads `ON`. |
 | Neither wheel moves after a reset | Expected — `START_ENABLED` is `false`, so every boot lands disarmed. Arm them, or flip the constant. |
-| Buttons show `ON` but the wheel is dead | `EN` wiring: `D18`/`D19` to the right driver, `D21`/`D22` to the left, both halves of a bridge connected. |
-| Cannot find pin "36" or "39" on the board | They are silkscreened **`VP`** and **`VN`**, on the top row next to `EN`. |
-| Motors twitch during upload or reset | `EN` is floating before `setup()` runs. Fit ~10 kΩ pulldowns on `D18`/`D19`/`D21`/`D22` — see section 9. |
+| Buttons show `ON` but the wheel is dead | `EN` wiring: `ENA` to `D9`, `ENB` to `D10`, and the `ENA`/`ENB` jumpers off — see section 3. |
+| Motors twitch during upload or reset | `EN` is floating before `setup()` runs. Fit ~10 kΩ pulldowns on `ENA`/`ENB` (`D9`/`D10`) — see section 9. |
 | Robot creeps with the knob centred | Raise `DEADZONE`. |
 | Buzzes but will not move at low throttle | Raise `MIN_PWM`. |
 | Lurches as soon as it leaves the deadzone | Lower `MIN_PWM`. |
@@ -867,6 +921,8 @@ up with no password and no warning.
 | A move does nothing | The wheels are disarmed — arm them first, a move respects the enables. Or `speed` is so low the stick lands inside the deadzone. |
 | A move stops early | Someone's knob was deflected, or `/stop` was called — both cancel a move. Or the hold hit `MOVE_MAX_MS`. |
 | A move never lasts as long as asked | `ms` is capped at `MOVE_MAX_MS` (3000). Section 9 says why. |
+| Serial commands come out as garbage or do nothing | The sender's baud is not 115200. On the R4 WiFi the USB port is a bridged UART, so the baud must match. |
+| Serial says `routine: … refused` | The reason is on the line: arm both wheels, wait `STICK_PRIORITY_MS` after driving, or wait for the running routine. |
 
 ### Uploading
 
@@ -877,9 +933,10 @@ up with no password and no warning.
 | `Serial port busy` / flaky uploads | Close the Serial Monitor first. A stuck `serial-monitor` helper can hold the port. |
 | Fails repeatedly | Try another USB-C cable (many are charge-only) and plug straight into the machine rather than a hub. |
 
-After a successful upload the sketch prints two lines and then goes **quiet**:
+After a successful upload the sketch prints three lines and then goes **quiet**:
 
 ```
+Wi-Fi firmware 0.x.x
 access point "mascot-robot" up, open http://192.168.4.1
 Mascot robot ready.
 ```

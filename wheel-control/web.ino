@@ -38,7 +38,6 @@ void startServer() {
   server.on("/move", handleMove);
   server.on("/moves", handleMoves);
   server.on("/servo", handleServo);
-  server.on("/face", handleFace);
   server.onNotFound(handleNotFound);
 
   server.begin();
@@ -79,8 +78,8 @@ void handleDrive() {
   int y = constrain(server.arg("y").toInt(), -512, 512);
   lastCommand = millis();
 
-  // A deflected knob is somebody driving, and that outranks the voice system
-  // for STICK_PRIORITY_MS -- see stickActive() in voice-activated.ino. The
+  // A deflected knob is somebody driving, and that outranks the serial link
+  // for STICK_PRIORITY_MS -- see stickActive() in routines.ino. The
   // 0,0 heartbeat below must not stamp it: that arrives at 5 Hz whenever the
   // page is open, so it would hold the priority forever.
   if (x != 0 || y != 0) {
@@ -89,10 +88,10 @@ void handleDrive() {
 
   // A routine owns the wheels for its whole length: the knob does not
   // interrupt one, it waits it out. Ending a routine early is a
-  // deliberate act -- /stop, or "stop" on the voice link, both of which call
+  // deliberate act -- /stop, or "stop" on the serial link, both of which call
   // cancelMove(). The stamp above still happens while we wait, so the moment
-  // the routine does end, the driver already outranks whatever the voice
-  // system says next.
+  // the routine does end, the driver already outranks whatever arrives on
+  // serial next.
   if (routineRunning()) {
     server.send(200, "text/plain", statusBody());
     return;
@@ -119,8 +118,8 @@ void handleStop() {
   lastCommand = millis();
 
   // STOP is somebody at the page deciding the robot should not be moving, so
-  // it takes the wheels off the voice system too -- otherwise a word heard a
-  // moment earlier could start a routine right on top of the stop.
+  // it takes the wheels off the serial link too -- otherwise a command that
+  // arrived a moment earlier could start a routine right on top of the stop.
   lastStickInput = millis();
 
   server.send(200, "text/plain", statusBody());
