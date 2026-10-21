@@ -133,8 +133,7 @@ int PASSIONATE_SPEED = 100;
 
 unsigned long ANNOYED_MS = 400;     // a short turn right on the spot (annoyed())
 int ANNOYED_SPEED = 60;
-int ANNOYED_SERVO_DEG = 120;        // head turns here (left of SERVO_START_DEG) while the wheels turn
-                                    // right; use 60 instead if your servo turns the head right
+int ANNOYED_SERVO_DEG = 80;         // head turns to this absolute angle while the wheels turn right
 
 // Every emotion above holds its gesture for UNDO_DELAY_MS and then undoes it,
 // back to where it started with the head centred. annoyed() undoes its turn by
@@ -146,14 +145,14 @@ unsigned long UNDO_DELAY_MS = 2000;
 int UNDO_SPEED = 50;
 
 // The two head-only emotions. Neither moves a wheel or has an undo, so neither
-// needs the wheels armed. "Left" is SERVO_START_DEG + degrees, as for
-// ANNOYED_SERVO_DEG.
+// needs the wheels armed. "Left" is SERVO_START_DEG + degrees.
 unsigned long ANGRY_SHAKE_MS = 2000;     // how long angry() shakes the head
 int ANGRY_SHAKE_DEG = 5;                 // each side of centre
 unsigned long ANGRY_SHAKE_STEP_MS = 20;  // per side: one servo frame, the fastest it can follow
 
-int EXCITED_SERVO_DEG = 25;              // excited() turns this far right, then this far left
-unsigned long EXCITED_HOLD_MS = 250;     // hold at each side
+int EXCITED_FIRST_DEG = 80;              // excited() turns the head to this absolute angle,
+int EXCITED_SECOND_DEG = 95;             // then across to this one, then back to SERVO_START_DEG
+unsigned long EXCITED_HOLD_MS = 250;     // hold at each of the two angles
 
 // The joystick outranks the serial link, and this is how long it keeps the
 // wheels after the last time somebody actually pushed the knob. A routine

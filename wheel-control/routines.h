@@ -36,18 +36,19 @@
 //   spin        one full turn on the spot, counter-clockwise
 //   dance       the six-step routine below
 //   surprised   a fast ~10 cm hop straight back
-//   excited     head 25 deg right, then straight across to 25 deg left, then
-//               front; no wheels, no arming needed
+//   excited     head to 80 deg, then straight across to 95 deg, then front
+//               (90); no wheels, no arming needed
 //   stop        cancel whatever is running and centre the stick
 //   sad         a slow back-off
 //   happy       a slow roll forward
 //   passionate  a fast lunge forward
-//   annoyed     a short turn right on the spot, head turned left meanwhile
+//   annoyed     a short turn right on the spot, head at 80 deg meanwhile
 //
 //               Each of these five holds its gesture for UNDO_DELAY_MS (2 s)
 //               and then undoes it: back to where it started, head centred.
 //   angry       a fast, small head shake for 2 s; no wheels, no arming needed
-//   idle        the resting face; accepted and does nothing
+//   idle        the resting face: head to centre (90); no wheels, no arming
+//               needed, and ignored while a routine is running
 //
 // The tablet (RobotLink.kt) writes each expression change as its bare label
 // -- "excited\n", "sad\n" -- with no "face:" prefix; the old face:<expr>

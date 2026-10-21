@@ -74,14 +74,25 @@ void runCommand(const String &cmd) {
   }
 
   // The tablet sends every expression change as its bare label (RobotLink.kt),
-  // so the rest of the vocabulary arrives here too (routines.ino);
-  // "idle" is the resting face and needs nothing.
+  // so the rest of the vocabulary arrives here too (routines.ino).
   if (cmd == "sad")        { sad();        return; }
   if (cmd == "happy")      { happy();      return; }
   if (cmd == "angry")      { angry();      return; }
   if (cmd == "passionate") { passionate(); return; }
   if (cmd == "annoyed")    { annoyed();    return; }
-  if (cmd == "idle")       { return; }
+
+  // "idle" is the resting face: the head faces front (SERVO_START_DEG, 90 as
+  // shipped). Not mid-routine -- an idle arriving while one plays would cut its
+  // gesture short, and every routine ends with the head centred anyway.
+  if (cmd == "idle") {
+    if (routineRunning()) {
+      Serial.println(F("serial: idle -- routine running, head left alone"));
+      return;
+    }
+    setServo(SERVO_START_DEG);
+    Serial.println(F("serial: idle -- head to centre"));
+    return;
+  }
 
   /*
   // "face:<expr>" -- the tablet's expression changes, same gestures as

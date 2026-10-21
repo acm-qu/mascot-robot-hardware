@@ -432,8 +432,8 @@ bool passionate() {
   return finished;
 }
 
-// The body turns right on the spot while the head turns left, so the robot
-// ends up looking away. The servo is set before the move starts and puts
+// The body turns right on the spot while the head turns to ANNOYED_SERVO_DEG
+// (80 as shipped). The servo is set before the move starts and puts
 // itself there on its own, so the two happen together. It holds that for
 // UNDO_DELAY_MS, then the head comes back to centre and the body turns back
 // left by the same turn -- the same move mirrored, same ms and speed, so the
@@ -454,24 +454,21 @@ bool annoyed() {
   return finished;
 }
 
-// Head-only: the head turns EXCITED_SERVO_DEG to the right, holds for
-// EXCITED_HOLD_MS, swings straight across to the same angle on the left in
-// one move -- one setServo(), so it passes centre without stopping there --
-// holds again, and then faces front. No undo; the wheels never move. The
-// holds are pauseFor(), not delay(), so STOP still gets through, and the head
-// is centred whichever way the routine ends.
-//
-// Left is SERVO_START_DEG + degrees, the same side ANNOYED_SERVO_DEG treats as
-// left; if annoyed() turns your head the wrong way, this does too.
+// Head-only: the head turns to EXCITED_FIRST_DEG, holds for EXCITED_HOLD_MS,
+// swings straight across to EXCITED_SECOND_DEG in one move -- one setServo(),
+// so it passes centre without stopping there -- holds again, and then faces
+// front. 80 -> 95 -> 90 as shipped. No undo; the wheels never move. The holds
+// are pauseFor(), not delay(), so STOP still gets through, and the head is
+// centred whichever way the routine ends.
 bool excited() {
   if (!beginHeadRoutine("excited")) {
     return false;
   }
 
-  setServo(SERVO_START_DEG - EXCITED_SERVO_DEG);       // right
+  setServo(EXCITED_FIRST_DEG);
   bool finished = pauseFor(EXCITED_HOLD_MS);
   if (finished) {
-    setServo(SERVO_START_DEG + EXCITED_SERVO_DEG);     // across to the left
+    setServo(EXCITED_SECOND_DEG);
     finished = pauseFor(EXCITED_HOLD_MS);
   }
   setServo(SERVO_START_DEG);
